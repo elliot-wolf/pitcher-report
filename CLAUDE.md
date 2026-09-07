@@ -33,6 +33,12 @@ without a fetch; every other pitcher is fetched from `p/<id>.json` on select
 and cached in `PITCH_CACHE`. `select()` is async and guards against a stale
 response overwriting a newer selection via `loadSeq`.
 
+**Cache safety:** per-pitcher files are fetched as `p/<id>.json?b=<buildId>`,
+where `buildId` is stamped by `bake.py` on every bake. Without it a returning
+viewer decodes last build's bytes with this build's decoder — which is exactly
+what happened when the packed encoding changed, producing a plausible-looking
+but wrong count distribution. Never drop the stamp.
+
 **Consequence:** the page no longer works as a single self-contained file for
 the heat maps — it needs `p/` served alongside it. That is why the local dev
 server points at `dist/`, not the project root. Everything except the heat
@@ -146,8 +152,7 @@ so the user's swing/take decision is genuinely theirs:
 
 | step | source |
 |---|---|
-| which pitch | `usage[hand][countState]` — his real mix in that count |
-| where | a real pitch of that type he threw in that count, from the packed table |
+| which pitch + where | **one** real pitch sampled from the packed table at the **exact** count — type and location come together, so the joint distribution is his |
 | ball / strike | that pitch's actual `plate_x`/`plate_z` vs the rulebook zone |
 | whiff | `outcomes[type][bin][0]` — his whiff-per-swing in that attack zone |
 | foul | `outcomes[type][bin][1]` — foul-per-contact |
@@ -180,6 +185,26 @@ tracking zone strongly, or triples do, the binning is wrong.
 
 Deliberately NOT replaying recorded at-bats: that would pin the outcome to what
 the real hitter did, so the user's decision would not matter.
+
+**The animation must fly the sampled pitch.** `aimedTrajectory()` keeps his real
+release point and real acceleration and solves the velocity so the path ends
+exactly on the sampled location (0 inches of error). Before it, the sim animated
+the one representative trajectory while judging a different, varying location —
+you could watch a pitch down the middle and be told it was ball four.
+
+**Exact count, not count state.** The packed table carries balls and strikes,
+not just the coarse state, because 3-0 and 1-0 are both "behind" and that is
+exactly where it matters. Skenes in the zone by count: 0-0 49%, 2-0 59%,
+3-0 60%, 1-2 36%, 0-2 26%. Grooving when behind and expanding when ahead is
+what makes the walk rate come out right.
+
+**Walks are emergent, never dialled in.** They come from taking pitches he
+genuinely missed the zone with. Validated by simulating a hitter with each
+pitcher's own chase rate — simulated BB% lands within a point of real:
+Valdez 8.8 vs 8.4, Gore 10.1 vs 9.2, Skenes 8.8 vs 7.0, Wheeler 6.9 vs 7.9.
+A flat league chase rate instead of the pitcher's own put Skenes at 13.1%,
+which is a hitter-model artefact, not a location-model error. If you ever want
+to "fix" the walk rate with a knob, don't — check the chase assumption first.
 
 ## Data sources
 

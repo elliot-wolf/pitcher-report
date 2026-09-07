@@ -328,7 +328,12 @@ def build_pitcher(meta, season):
         ls, la = f(r, "launch_speed"), f(r, "launch_angle")
         barrel = bool(ls and la and ls >= 98 and 8 <= la <= 50 and (ls * 1.5 - la) >= 117)
         flags = (1 if whiff else 0) | (2 if barrel else 0)
-        buf.append(e1(pt_idx[pt]) + e1(stand * 20 + cs * 4 + flags)
+        # c0 = pitch index * 4 + flags        (<= 15 types, 4 flag combos)
+        # c1 = stand * 12 + balls * 3 + strikes (exact count, not just a state)
+        pi = pt_idx[pt]
+        if pi > 15: continue
+        bi, si = min(3, int(r["balls"] or 0)), min(2, int(r["strikes"] or 0))
+        buf.append(e1(pi * 4 + flags) + e1(stand * 12 + bi * 3 + si)
                    + e2((x + 3) * 100) + e2(z * 100))
         pool.append((x, z, stand, whiff, barrel))
 
@@ -356,6 +361,8 @@ def build_pitcher(meta, season):
             "G": int(st.get("gamesPlayed") or 0),
             "SV": int(st.get("saves") or 0),
             "AVG": g("avg"),
+            "BB": int(st.get("baseOnBalls") or 0),
+            "BF": bf,
             "Pit/App": round(len(rows) / max(1, int(st.get("gamesPlayed") or 1))),
         },
         "run": {

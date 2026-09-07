@@ -9,7 +9,7 @@ location data for one pitcher is fetched on demand from p/<id>.json.
     dist/index.html   the page, with the index inlined
     dist/p/<id>.json  {"pitches": "<packed>"} per pitcher
 """
-import json, os, shutil, sys
+import json, os, shutil, sys, time
 
 SRC, TPL, OUTDIR = "cards.json", "card_template.html", "dist"
 
@@ -38,6 +38,9 @@ for p in data["pitchers"]:
         p["pitches"] = packed          # inline this one only
 
 data["defaultId"] = default_id
+# Per-pitcher files are fetched with this stamp appended, so a rebuild can
+# never leave a viewer decoding last build's bytes with this build's decoder.
+data["buildId"] = int(time.time())
 payload = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
 open(f"{OUTDIR}/index.html", "w").write(tpl.replace("__PAYLOAD__", payload))
 

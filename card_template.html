@@ -484,6 +484,13 @@ button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
 const DATA = JSON.parse(document.getElementById("payload").textContent);
 const GRID = DATA.grid;
 const CS_KEYS = ["first","ahead","even","behind","twok"];
+function csIndex(b, k) {
+  if (b === 0 && k === 0) return 0;   // first pitch
+  if (k === 2) return 4;              // two strikes
+  if (k > b)   return 1;              // ahead
+  if (b > k)   return 3;              // behind
+  return 2;                           // even
+}
 const CS_LABEL = { first:"0-0", ahead:"Ahead", even:"Even", behind:"Behind", twok:"2 Strikes" };
 const SLOTS = ["--p1","--p2","--p3","--p4","--p5","--p6","--p7","--p8"];
 
@@ -497,13 +504,14 @@ const IDX = Object.fromEntries([...B64].map((c,i)=>[c,i]));
 function decode(str, arsenal) {
   const out = [];
   for (let i = 0; i < str.length; i += 6) {
-    const pt = IDX[str[i]];
-    const m  = IDX[str[i+1]];
-    const x  = (IDX[str[i+2]] * 64 + IDX[str[i+3]]) / 100 - 3;
-    const z  = (IDX[str[i+4]] * 64 + IDX[str[i+5]]) / 100;
-    const flags = m % 4, cs = ((m / 4) | 0) % 5, stand = (m / 20) | 0;
+    const c0 = IDX[str[i]], c1 = IDX[str[i+1]];
+    const pt = c0 >> 2, flags = c0 & 3;
+    const stand = (c1 / 12) | 0, bs = c1 % 12;
+    const b = (bs / 3) | 0, k = bs % 3;
+    const x = (IDX[str[i+2]] * 64 + IDX[str[i+3]]) / 100 - 3;
+    const z = (IDX[str[i+4]] * 64 + IDX[str[i+5]]) / 100;
     out.push({ pt, id: arsenal[pt] ? arsenal[pt].id : "?",
-               hand: stand === 0 ? "R" : "L", cs: CS_KEYS[cs],
+               hand: stand === 0 ? "R" : "L", b, k, cs: CS_KEYS[csIndex(b, k)],
                x, z, whiff: !!(flags & 1), barrel: !!(flags & 2) });
   }
   return out;
@@ -841,7 +849,7 @@ let loadSeq = 0;
 
 async function loadPitches(p) {
   if (PITCH_CACHE.has(p.id)) return PITCH_CACHE.get(p.id);
-  const res = await fetch(`p/${p.id}.json`, { cache: "force-cache" });
+  const res = await fetch(`p/${p.id}.json?b=${DATA.buildId || 0}`, { cache: "force-cache" });
   if (!res.ok) throw new Error(`p/${p.id}.json → ${res.status}`);
   const packed = (await res.json()).pitches || "";
   PITCH_CACHE.set(p.id, packed);
@@ -1009,6 +1017,24 @@ function posAt(T, t, o) {
   return [ O[0] + T[2]*t + 0.5*T[5]*t*t,
            Y_REF + T[3]*t + 0.5*T[6]*t*t,
            O[1] + T[4]*t + 0.5*T[7]*t*t ];
+}
+
+/* Same release point and the same acceleration (so the movement is his), but
+   the velocity solved so the pitch finishes exactly where the sampled pitch
+   finished. Without this the animation always flew the one representative
+   trajectory, so the ball you watched was not the pitch you were judged on. */
+function aimedTrajectory(T, targetX, targetZ) {
+  const tRel = solveT(T, 60.5 - T[8]), tEnd = solveT(T, Y_PLATE);
+  if (tRel === null || tEnd === null) return T;
+  const dt = tEnd - tRel;
+  const vx = (targetX - T[0] - 0.5 * T[5] * dt * dt) / dt;
+  const vz = (targetZ - T[1] - 0.5 * T[7] * dt * dt) / dt;
+  const A = T.slice();
+  /* express the solved velocity back at the y=50 reference the model uses */
+  A[2] = vx - T[5] * tRel;
+  A[4] = vz - T[7] * tRel;
+  A[9] = targetX; A[10] = targetZ;
+  return A;
 }
 
 function buildPath(T) {
@@ -1300,14 +1326,15 @@ function playFlight() {
   FL.raf = requestAnimationFrame(step);
 }
 
-function selectPitch(id) {
-  const p = state.p, T = (p.flight || {})[id];
+function selectPitch(id, override) {
+  const p = state.p, T = override || (p.flight || {})[id];
   if (!T) return;
   const i = p.arsenal.findIndex(a => a.id === id);
   const a = p.arsenal[i];
   FL.type = id;
   FL.color = css(SLOTS[i % 8]);
   FL.path = buildPath(T);
+  FL.aimed = !!override;
   FL.progress = 1;
 
   document.querySelectorAll("#pitch-picker .pchip").forEach(b =>
@@ -1367,7 +1394,8 @@ function renderFlight() {
    ══════════════════════════════════════════════════════════════════════════ */
 const AB = { on:false, hand:"R", balls:0, strikes:0, pitchNo:0, log:[], pending:null,
              guess:null, hitKind:0,
-             tally:{ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0} };
+             tally:{ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0,
+                    ooz:0,chased:0} };
 
 const ZONE_BIN_NAME = ["heart of the zone", "edge of the zone",
                        "just off the plate", "well off the plate"];
@@ -1380,13 +1408,7 @@ function zoneBin(x, z) {
 }
 const inZone = (x, z) => Math.abs(x) <= 0.83 && z >= 1.59 && z <= 3.41;
 
-function countState(b, k) {
-  if (b === 0 && k === 0) return "first";
-  if (k === 2) return "twok";
-  if (k > b) return "ahead";
-  if (b > k) return "behind";
-  return "even";
-}
+const countState = (b, k) => CS_KEYS[csIndex(b, k)];
 function pickWeighted(weights) {
   let t = 0; for (const k in weights) t += weights[k];
   if (t <= 0) return null;
@@ -1395,14 +1417,26 @@ function pickWeighted(weights) {
   return Object.keys(weights)[0];
 }
 
-/* a real pitch he threw of this type, in this count, to this hand */
-function samplePitch(typeId, cs, hand) {
-  const pool = state.pitches.filter(p => p.id === typeId && p.hand === hand && p.cs === cs);
-  const fallback = pool.length ? pool
-    : state.pitches.filter(p => p.id === typeId && p.hand === hand);
-  const src = fallback.length ? fallback : state.pitches.filter(p => p.id === typeId);
-  return src.length ? src[(Math.random() * src.length) | 0] : null;
+/* A real pitch he threw at this exact count to this hand — type and location
+   sampled *together*, so the joint distribution is his. Exact count matters:
+   3-0 is not 1-0. Falls back to the coarser count state, then to the hand,
+   when a cell is thin. */
+function sampleRealPitch(balls, strikes, hand) {
+  const cs = CS_KEYS[csIndex(balls, strikes)];
+  const tiers = [
+    p => p.hand === hand && p.b === balls && p.k === strikes,
+    p => p.hand === hand && p.cs === cs,
+    p => p.hand === hand,
+    () => true
+  ];
+  for (const f of tiers) {
+    const pool = state.pitches.filter(f);
+    if (pool.length >= 12) return pool[(Math.random() * pool.length) | 0];
+  }
+  return state.pitches.length
+    ? state.pitches[(Math.random() * state.pitches.length) | 0] : null;
 }
+
 function outcomeCell(typeId, bin) {
   const c = ((state.p.outcomes || {})[typeId] || [])[bin]
          || (DATA.leagueOutcomes || [])[bin]
@@ -1417,6 +1451,20 @@ function abSetCount() {
   $ab("ab-strikes").textContent = AB.strikes;
   $ab("ab-vs").textContent = `vs ${AB.hand}HH · pitch ${AB.pitchNo + 1}`;
 }
+/* His real walk rate, so the simulated one has something to be judged against.
+   Walks here are emergent — they come out of taking pitches he actually missed
+   the zone with — so this is the number to compare, not a dial to set. */
+function leagueChasePct() {
+  let n = 0, w = 0;
+  for (const a of (state.p.arsenal || [])) {
+    if (a.chase != null) { n += a.usage * a.chase; w += a.usage; }
+  }
+  return w ? 100 * n / w : null;
+}
+function realBBPct() {
+  const S = state.p.season || {};
+  return S.BF ? (100 * (S.BB || 0) / S.BF) : null;
+}
 function abTally() {
   const t = AB.tally;
   if (!t.ab) { $ab("ab-tally").innerHTML = ""; return; }
@@ -1424,10 +1472,20 @@ function abTally() {
   const f3 = v => v.toFixed(3).replace(/^0/, "");
   const xbh = [t.h2 && `${t.h2} 2B`, t.h3 && `${t.h3} 3B`, t.hr && `${t.hr} HR`]
                 .filter(Boolean).join(", ");
+  const real = realBBPct();
+  const bbNote = real === null ? ""
+    : ` · you walk ${(100 * t.bb / t.ab).toFixed(0)}% vs his real ${real.toFixed(1)}%`;
+  /* Walks here are emergent — they come from taking pitches he actually missed
+     the zone with — so chase discipline is the lever, and the league's rate
+     against this pitcher is the benchmark worth showing. */
+  const lgChase = leagueChasePct();
+  const chaseNote = (t.ooz >= 15 && lgChase !== null)
+    ? ` · you chase ${Math.round(100 * t.chased / t.ooz)}% vs league ${lgChase.toFixed(0)}%` : "";
   $ab("ab-tally").innerHTML =
     `${t.ab} PA — ${t.h} hit${t.h === 1 ? "" : "s"}${xbh ? ` (${xbh})` : ""}, `
     + `${t.so} K, ${t.bb} BB, ${t.out} out${t.out === 1 ? "" : "s"}`
     + ` · ${f3(t.h / ab)} / ${f3(t.tb / ab)} avg/slg`
+    + bbNote + chaseNote
     + (t.guesses ? ` · read him ${Math.round(100 * t.guessed / t.guesses)}% (${t.guessed}/${t.guesses})` : "");
 }
 function abLog(txt, res) {
@@ -1454,21 +1512,23 @@ function abAskGuess() {
 function abThrow(guess) {
   const p = state.p;
   AB.guess = guess;
-  const cs = countState(AB.balls, AB.strikes);
-  const mix = ((p.usage || {})[AB.hand] || {})[cs] || {};
-  const usable = {};
-  for (const id in mix) if ((p.flight || {})[id]) usable[id] = mix[id];
-  const typeId = pickWeighted(usable) || (p.arsenal[0] || {}).id;
-  const real = samplePitch(typeId, cs, AB.hand);
-  const a = p.arsenal.find(x => x.id === typeId);
+  const real = sampleRealPitch(AB.balls, AB.strikes, AB.hand);
+  const typeId = real ? real.id : (p.arsenal[0] || {}).id;
+  const a = p.arsenal.find(x => x.id === typeId) || p.arsenal[0];
+  const base = (p.flight || {})[typeId];
+  const loc = real ? [real.x, real.z]
+                   : (base ? [base[9], base[10]] : [0, 2.5]);
 
-  AB.pending = { typeId, a, loc: real ? [real.x, real.z] : [p.flight[typeId][9], p.flight[typeId][10]] };
+  AB.pending = { typeId, a, loc };
   AB.pitchNo++;
   AB.tally.guesses++;
   if (guess === typeId) AB.tally.guessed++;
 
-  selectPitch(typeId);
-  playFlight();
+  /* fly the pitch that was actually sampled, not the stock one */
+  if (base) {
+    selectPitch(typeId, aimedTrajectory(base, loc[0], loc[1]));
+    playFlight();
+  }
   $ab("ab-body").innerHTML = `<div class="ab-q">pitch is on the way…</div>`;
   const wait = Math.min(2400, (FL.path ? FL.path.flight / FL.speed : 0.4) * 1000 + 120);
   setTimeout(abAskSwing, wait);
@@ -1490,6 +1550,7 @@ function abResolve(act) {
   const { typeId, a, loc } = AB.pending;
   const [x, z] = loc, bin = zoneBin(x, z), cell = outcomeCell(typeId, bin);
   const strike = inZone(x, z);
+  if (!strike) { AB.tally.ooz++; if (act === "swing") AB.tally.chased++; }
   const right = AB.guess === typeId;
   let big, why, cls = "", done = null;
 
@@ -1567,7 +1628,8 @@ function abNewBatter() {
 }
 function abStart() {
   AB.on = true;
-  AB.tally = { ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0 };
+  AB.tally = { ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0,
+               ooz:0, chased:0 };
   abNewBatter(); abTally();
 }
 
