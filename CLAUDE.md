@@ -132,7 +132,12 @@ so the user's swing/take decision is genuinely theirs:
 | ball / strike | that pitch's actual `plate_x`/`plate_z` vs the rulebook zone |
 | whiff | `outcomes[type][bin][0]` — his whiff-per-swing in that attack zone |
 | foul | `outcomes[type][bin][1]` — foul-per-contact |
-| hit / homer | `outcomes[type][bin][2..3]` — per ball in play |
+| 1B / 2B / 3B / HR | `outcomes[type][bin][2..5]` — each per ball in play |
+
+Contact resolves with a **single cumulative roll** over HR → 3B → 2B → 1B →
+out, so the branches cannot drift out of sync. Each hit type is shrunk toward
+its own league rate; triples are ~0.4% of balls in play, so a pitcher's own
+triple rate is essentially noise and shrinkage correctly pulls it to league.
 
 Four attack zones (`ZONE_BINS`: heart / edge / shadow / chase) keep per-cell
 samples usable. Per-pitcher rates are **shrunk toward the pooled league rate**
@@ -140,9 +145,19 @@ for the same zone (`shrink()`, k=45), so a six-swing cell cannot produce a 100%
 whiff rate. League rates ship as `DATA.leagueOutcomes` and are the fallback
 when a pitcher has no cell.
 
-Sanity check if you change the model — the league rates should stay monotonic:
-heart 14% whiff/swing and 34% hit/BIP, chase 57% whiff and 27% hit. If chasing
-stops being punished, something is wrong.
+Sanity checks if you change the model. The league rates should stay monotonic
+in the right places and flat in the others:
+
+| zone | whiff/swing | 1B | 2B | 3B | HR |
+|---|---|---|---|---|---|
+| heart | 14% | 20.6% | 6.9% | 0.62% | 5.8% |
+| chase | 57% | 21.9% | 4.0% | 0.43% | 0.9% |
+
+Note what moves and what doesn't. Extra-base hits collapse away from the heart
+(HR 6.4x, doubles ~2x) while **singles stay flat** — the drop in total hit rate
+is entirely power, not contact quality. Triples are flat and rare everywhere;
+they are a function of the park and the runner, not the pitch. If singles start
+tracking zone strongly, or triples do, the binning is wrong.
 
 Deliberately NOT replaying recorded at-bats: that would pin the outcome to what
 the real hitter did, so the user's decision would not matter.

@@ -1244,8 +1244,9 @@ function renderFlight() {
    zone (see `shrink` in build_cards.py), so a six-pitch cell cannot hand you
    a 100% whiff rate.
    ══════════════════════════════════════════════════════════════════════════ */
-const AB = { on:false, hand:"R", balls:0, strikes:0, pitchNo:0, log:[],
-             pending:null, guess:null, tally:{ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0} };
+const AB = { on:false, hand:"R", balls:0, strikes:0, pitchNo:0, log:[], pending:null,
+             guess:null, hitKind:0,
+             tally:{ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0} };
 
 const ZONE_BIN_NAME = ["heart of the zone", "edge of the zone",
                        "just off the plate", "well off the plate"];
@@ -1282,10 +1283,11 @@ function samplePitch(typeId, cs, hand) {
   return src.length ? src[(Math.random() * src.length) | 0] : null;
 }
 function outcomeCell(typeId, bin) {
-  const o = (state.p.outcomes || {})[typeId];
-  if (o && o[bin]) return { whiff:o[bin][0], foul:o[bin][1], hit:o[bin][2], hr:o[bin][3], n:o[bin][4] };
-  const l = (DATA.leagueOutcomes || [])[bin] || [0.25, 0.4, 0.32, 0.04];
-  return { whiff:l[0], foul:l[1], hit:l[2], hr:l[3], n:0 };
+  const c = ((state.p.outcomes || {})[typeId] || [])[bin]
+         || (DATA.leagueOutcomes || [])[bin]
+         || [0.25, 0.5, 0.22, 0.07, 0.005, 0.03];
+  return { whiff:c[0], foul:c[1], h1:c[2], h2:c[3], h3:c[4], hr:c[5],
+           hit:c[2]+c[3]+c[4]+c[5], n:c[6] || 0 };
 }
 
 const $ab = id => document.getElementById(id);
@@ -1296,12 +1298,16 @@ function abSetCount() {
 }
 function abTally() {
   const t = AB.tally;
-  const pa = t.ab;
-  const rate = pa ? ` · ${(t.h / Math.max(1, t.ab - t.bb)).toFixed(3).replace(/^0/, "")} avg` : "";
-  $ab("ab-tally").innerHTML = pa
-    ? `${pa} PA — ${t.h} hit${t.h === 1 ? "" : "s"}, ${t.so} K, ${t.bb} BB, ${t.out} out${t.out === 1 ? "" : "s"}${rate}`
-      + (t.guesses ? ` · guessed the pitch ${Math.round(100 * t.guessed / t.guesses)}% (${t.guessed}/${t.guesses})` : "")
-    : "";
+  if (!t.ab) { $ab("ab-tally").innerHTML = ""; return; }
+  const ab = Math.max(1, t.ab - t.bb);                      // walks are not at-bats
+  const f3 = v => v.toFixed(3).replace(/^0/, "");
+  const xbh = [t.h2 && `${t.h2} 2B`, t.h3 && `${t.h3} 3B`, t.hr && `${t.hr} HR`]
+                .filter(Boolean).join(", ");
+  $ab("ab-tally").innerHTML =
+    `${t.ab} PA — ${t.h} hit${t.h === 1 ? "" : "s"}${xbh ? ` (${xbh})` : ""}, `
+    + `${t.so} K, ${t.bb} BB, ${t.out} out${t.out === 1 ? "" : "s"}`
+    + ` · ${f3(t.h / ab)} / ${f3(t.tb / ab)} avg/slg`
+    + (t.guesses ? ` · read him ${Math.round(100 * t.guessed / t.guesses)}% (${t.guessed}/${t.guesses})` : "");
 }
 function abLog(txt, res) {
   AB.log.push({ n: AB.pitchNo, txt, res });
@@ -1379,13 +1385,23 @@ function abResolve(act) {
       if (AB.strikes < 2) AB.strikes++;
       big = "Foul"; why = `Contact, but off it. ${Math.round(cell.foul * 100)}% of contact there goes foul.`;
     } else {
-      const hit = Math.random() < cell.hit;
-      if (hit) {
-        const hr = cell.hit > 0 && Math.random() < cell.hr / cell.hit;
-        big = hr ? "Home run" : "Base hit"; cls = "good"; done = "hit";
-        why = `Balls in play off that pitch there land for a hit ${Math.round(cell.hit * 100)}% of the time.`;
+      /* one roll across the whole ball-in-play distribution */
+      const r = Math.random();
+      const pct = v => (v * 100).toFixed(v < 0.02 ? 1 : 0) + "%";
+      if (r < cell.hr) {
+        big = "Home run"; cls = "good"; done = "hit"; AB.hitKind = 4;
+        why = `${pct(cell.hr)} of balls in play off that pitch there leave the yard.`;
+      } else if (r < cell.hr + cell.h3) {
+        big = "Triple"; cls = "good"; done = "hit"; AB.hitKind = 3;
+        why = `A triple is rare — ${pct(cell.h3)} of balls in play there.`;
+      } else if (r < cell.hr + cell.h3 + cell.h2) {
+        big = "Double"; cls = "good"; done = "hit"; AB.hitKind = 2;
+        why = `${pct(cell.h2)} of balls in play off that pitch there go for two.`;
+      } else if (r < cell.hit) {
+        big = "Single"; cls = "good"; done = "hit"; AB.hitKind = 1;
+        why = `${pct(cell.h1)} of balls in play there fall in for a single.`;
       } else {
-        big = "In play, out"; cls = "bad"; done = "out";
+        big = "In play, out"; cls = "bad"; done = "out"; AB.hitKind = 0;
         why = `${Math.round((1 - cell.hit) * 100)}% of balls in play there are outs.`;
       }
     }
@@ -1411,7 +1427,10 @@ function abResolve(act) {
 
   if (done) {
     const t = AB.tally; t.ab++;
-    if (done === "hit") t.h++; else if (done === "so") t.so++;
+    if (done === "hit") {
+      t.h++; t.tb += AB.hitKind;
+      t[["", "h1", "h2", "h3", "hr"][AB.hitKind]]++;
+    } else if (done === "so") t.so++;
     else if (done === "bb") t.bb++; else t.out++;
   }
   abTally();
@@ -1427,7 +1446,7 @@ function abNewBatter() {
 }
 function abStart() {
   AB.on = true;
-  AB.tally = { ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0 };
+  AB.tally = { ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0 };
   abNewBatter(); abTally();
 }
 

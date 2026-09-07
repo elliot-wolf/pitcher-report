@@ -196,11 +196,11 @@ def zone_bin(x, z):
     return 3                                            # chase / waste
 
 FOUL_DESC = {"foul", "foul_bunt"}
-HIT_EVENTS = {"single", "double", "triple", "home_run"}
+HIT_SLOT = {"single": 4, "double": 5, "triple": 6, "home_run": 7}
 
 def outcome_counts(rows):
-    """swings / whiffs / fouls / balls-in-play / hits / homers, per bin."""
-    acc = [[0, 0, 0, 0, 0, 0] for _ in ZONE_BINS]
+    """[swings, whiffs, fouls, balls-in-play, 1B, 2B, 3B, HR] per attack zone."""
+    acc = [[0] * 8 for _ in ZONE_BINS]
     for r in rows:
         x, z = f(r, "plate_x"), f(r, "plate_z")
         if x is None or z is None: continue
@@ -211,9 +211,8 @@ def outcome_counts(rows):
         elif d in FOUL_DESC: b[2] += 1
         elif d == "hit_into_play":
             b[3] += 1
-            if r.get("events") in HIT_EVENTS:
-                b[4] += 1
-                if r.get("events") == "home_run": b[5] += 1
+            slot = HIT_SLOT.get(r.get("events"))
+            if slot: b[slot] += 1
     return acc
 
 def shrink(x, n, prior, k=45.0):
@@ -464,33 +463,37 @@ def main():
     # League rates per attack zone, pooled over every card in the build. Thin
     # per-pitcher cells are shrunk toward these so a 6-pitch sample cannot
     # produce a 100% whiff rate.
-    tot = [[0] * 6 for _ in ZONE_BINS]
+    tot = [[0] * 8 for _ in ZONE_BINS]
     for c in cards:
         for per_bin in c["_raw_out"].values():
             for i, b in enumerate(per_bin):
-                for j in range(6): tot[i][j] += b[j]
+                for j in range(8): tot[i][j] += b[j]
     lg = []
     for b in tot:
-        sw, wh, fo, bip, h, hr = b
-        ct = max(1, sw - wh)
+        sw, wh, fo, bip, h1, h2, h3, hr = b
+        ct, ip_ = max(1, sw - wh), max(1, bip)
         lg.append({"whiff": wh / max(1, sw), "foul": fo / ct,
-                   "hit": h / max(1, bip), "hr": hr / max(1, bip)})
-    print("  league by zone: " + "  ".join(
-        f"{ZONE_BINS[i]} whiff {lg[i]['whiff']:.0%}/swing, hit {lg[i]['hit']:.0%}/BIP"
-        for i in range(4)), file=sys.stderr)
+                   "1b": h1 / ip_, "2b": h2 / ip_, "3b": h3 / ip_, "hr": hr / ip_})
+    for i, v in enumerate(lg):
+        hit = v["1b"] + v["2b"] + v["3b"] + v["hr"]
+        print(f"  {ZONE_BINS[i]:<7} whiff {v['whiff']:.0%}/swing | per BIP: "
+              f"1B {v['1b']:.1%}  2B {v['2b']:.1%}  3B {v['3b']:.2%}  HR {v['hr']:.1%}"
+              f"  (hit {hit:.0%})", file=sys.stderr)
 
     for c in cards:
         outs = {}
         for pid_, per_bin in c.pop("_raw_out").items():
             cells = []
             for i, b in enumerate(per_bin):
-                sw, wh, fo, bip, h, hr = b
+                sw, wh, fo, bip, h1, h2, h3, hr = b
                 ct = sw - wh
                 cells.append([
                     round(shrink(wh, sw,  lg[i]["whiff"]), 3),
                     round(shrink(fo, ct,  lg[i]["foul"]),  3),
-                    round(shrink(h,  bip, lg[i]["hit"]),   3),
-                    round(shrink(hr, bip, lg[i]["hr"]),    3),
+                    round(shrink(h1, bip, lg[i]["1b"]),    4),
+                    round(shrink(h2, bip, lg[i]["2b"]),    4),
+                    round(shrink(h3, bip, lg[i]["3b"]),    4),
+                    round(shrink(hr, bip, lg[i]["hr"]),    4),
                     sw,
                 ])
             outs[pid_] = cells
@@ -504,8 +507,9 @@ def main():
         "grid": {"nx": NX, "nz": NZ, "bw": BW, "xd": XD, "zd": ZD},
         "baseline": base,
         "zoneBins": ZONE_BINS,
-        "leagueOutcomes": [[round(v["whiff"],3), round(v["foul"],3),
-                            round(v["hit"],3), round(v["hr"],3)] for v in lg],
+        "leagueOutcomes": [[round(v["whiff"],3), round(v["foul"],3), round(v["1b"],4),
+                            round(v["2b"],4), round(v["3b"],4), round(v["hr"],4)]
+                           for v in lg],
         "pitchers": cards,
     }
     with open(a.out, "w") as fh:
