@@ -79,3 +79,13 @@ than the starter population does in the same spot.
 
 See [CLAUDE.md](CLAUDE.md) for architecture notes and the gotchas worth knowing
 before changing the pipeline.
+
+## Disclaimer
+
+This is an unofficial, independent project. It is not affiliated with, endorsed
+by, or sponsored by Major League Baseball, MLB Advanced Media, or any MLB club.
+All trademarks are the property of their respective owners.
+
+Data is retrieved from publicly accessible Baseball Savant and MLB Stats API
+endpoints and is displayed here in derived form for analysis and educational
+purposes.

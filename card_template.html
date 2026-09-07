@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Opposing Starter Card</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -190,6 +191,13 @@ button.seg:focus-visible, #q:focus-visible { outline:2px solid var(--accent); ou
 .src-grid code { font-family:"IBM Plex Mono",monospace; font-size:10.5px; background:var(--surface-sunk);
   padding:1px 4px; word-break:break-all; }
 
+.colophon { margin-top:12px; padding-top:11px; border-top:1px solid var(--line);
+  display:flex; flex-wrap:wrap; gap:4px 18px; justify-content:space-between;
+  font-size:11px; color:var(--ink-3); line-height:1.5; }
+.colophon a { color:var(--ink-2); text-decoration:underline; text-underline-offset:2px; }
+.colophon a:hover { color:var(--ink); }
+.colophon strong { color:var(--ink-2); font-weight:600; }
+
 #tip { position:fixed; pointer-events:none; opacity:0; background:var(--band); color:var(--band-ink);
   padding:6px 9px; font-size:11.5px; line-height:1.35; border-radius:3px; z-index:50; max-width:230px; transition:opacity .1s; }
 
@@ -314,6 +322,12 @@ button.seg:focus-visible, #q:focus-visible { outline:2px solid var(--accent); ou
       <div><h4>Whiff+ / Damage+</h4>
         <p>Local rate over a location-matched baseline built from every pitch in this build. Barrels use the standard <code>launch_speed</code>/<code>launch_angle</code> definition.</p></div>
     </div>
+    <p class="colophon">
+      <span><strong>Unofficial.</strong> Not affiliated with, endorsed by, or sponsored by
+      Major League Baseball or any MLB club. All trademarks belong to their respective owners.</span>
+      <span>Data from Baseball Savant and the MLB Stats API ·
+      <a href="https://github.com/elliot-wolf/pitcher-report">source on GitHub</a></span>
+    </p>
   </section>
 </div>
 
