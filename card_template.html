@@ -1381,8 +1381,9 @@ function renderFlight() {
    Every step is driven by this pitcher's real data rather than a recorded
    at-bat, so your swing/take decision is actually yours:
 
-     which pitch    usage[hand][countState]     — his real mix in this count
-     where          a real pitch of that type he threw in this count
+     which pitch    one real pitch sampled at the exact count and batter
+     and where      hand — type and location together, so the joint
+                    distribution is his (3-0 really is 90% fastball)
      ball / strike  that pitch's actual plate_x, plate_z vs the rulebook zone
      whiff          his whiff-per-swing for that pitch in that attack zone
      foul / in play his foul-per-contact there
