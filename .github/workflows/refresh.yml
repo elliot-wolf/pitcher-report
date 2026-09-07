@@ -1,0 +1,86 @@
+name: Refresh scouting cards
+
+# Rebuilds the card from live Statcast data and publishes it to GitHub Pages.
+# Runs on GitHub's servers — no one's laptop needs to be awake.
+on:
+  schedule:
+    # 12:43 UTC = 8:43am ET (Apr–Oct) / 7:43am ET (Nov–Mar).
+    # GitHub cron is UTC-only and does not follow DST. Either time lands after
+    # the previous night's west-coast games have posted to Statcast.
+    - cron: "43 12 * * *"
+  workflow_dispatch:        # lets you rebuild on demand from the Actions tab
+    inputs:
+      limit:
+        description: "How many starters to pull (by games started)"
+        default: "60"
+      season:
+        description: "Season"
+        default: "2026"
+
+# Required for actions/deploy-pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two refreshes deploy at once
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build cards from Savant + StatsAPI
+        env:
+          SEASON: ${{ github.event.inputs.season || '2026' }}
+          LIMIT:  ${{ github.event.inputs.limit  || '60' }}
+        run: |
+          python3 build_cards.py \
+            --season "$SEASON" --limit "$LIMIT" \
+            --probable-days 2 --workers 4 --out cards.json
+
+      - name: Sanity-check the payload
+        run: |
+          python3 - <<'PY'
+          import json
+          d = json.load(open("cards.json"))
+          n = len(d["pitchers"])
+          base = d["baseline"]["R"]["n"] + d["baseline"]["L"]["n"]
+          assert n >= 30, f"only {n} pitchers"
+          assert base > 20000, f"baseline too thin ({base})"
+          print(f"ok: {n} pitchers, {base:,} baseline pitches, built {d['built']}")
+          PY
+
+      - name: Bake the payload into the page
+        run: python3 bake.py
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp pitcher-card.html _site/index.html
+          # keep the raw data downloadable alongside the page
+          cp cards.json _site/cards.json
+          echo "Built $(date -u '+%Y-%m-%d %H:%M UTC')" > _site/BUILD.txt
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

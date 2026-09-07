@@ -1,0 +1,22 @@
+# ── NEVER COMMIT ────────────────────────────────────────────────────────────
+# Source scouting reports from other organizations. These are not ours to
+# publish and this repo is public. Keep them local.
+original-reports/
+*.pdf
+
+# ── Generated data (rebuilt by CI on every run; don't bloat the repo) ───────
+cards.json
+pitcher-card.html
+.cards.new.json
+
+# ── Runtime junk ────────────────────────────────────────────────────────────
+refresh.log
+build.log
+launchd.out.log
+launchd.err.log
+.refresh.lock.d/
+.last-refresh
+.DS_Store
+__pycache__/
+*.pyc
+.venv/

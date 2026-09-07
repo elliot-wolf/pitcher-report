@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.elliot.pitcher-report</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/apple/Desktop/pitcher-report/refresh.sh</string>
+    </array>
+
+    <!-- 8:43am local, every day. Late enough that west-coast games from
+         the night before have posted to Statcast. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>8</integer>
+        <key>Minute</key><integer>43</integer>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/apple/Desktop/pitcher-report</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/apple/Desktop/pitcher-report/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/apple/Desktop/pitcher-report/launchd.err.log</string>
+
+    <!-- Don't fire on every login; the calendar interval is the trigger.
+         If the Mac is asleep at 8:43, launchd runs it on wake. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>SEASON</key><string>2026</string>
+        <key>LIMIT</key><string>60</string>
+    </dict>
+</dict>
+</plist>
