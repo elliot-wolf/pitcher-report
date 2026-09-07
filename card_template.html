@@ -243,8 +243,46 @@ button.pchip:focus-visible { outline:2px solid var(--accent); outline-offset:2px
 .flight-readout dt { color:var(--ink-3); letter-spacing:0.05em; text-transform:uppercase; font-size:9.5px; font-weight:600; align-self:center; }
 .flight-readout dd { text-align:right; font-size:14px; font-weight:500; }
 .flight-readout dl > :nth-last-child(-n+2) { border-bottom:0; }
-.flight-note { font-size:11.5px; color:var(--ink-2); line-height:1.45; margin:11px 0 0; }
 @media (max-width:820px) { .flight-wrap { grid-template-columns:minmax(0,1fr); } }
+
+.mode-row { display:flex; align-items:center; gap:7px; margin-bottom:11px; }
+.mode-hint { font-size:11.5px; color:var(--ink-3); margin-left:6px; }
+
+.ab-count { display:flex; align-items:baseline; gap:14px; border:1px solid var(--line);
+  background:var(--surface); padding:9px 12px; }
+.ab-bs { display:inline-flex; align-items:baseline; gap:4px; }
+.ab-bs b { font-family:"IBM Plex Mono",monospace; font-size:26px; font-weight:600; line-height:1; }
+.ab-bs i { font-style:normal; font-size:10px; letter-spacing:0.12em; color:var(--ink-3); font-weight:600; }
+.ab-vs { margin-left:auto; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-3); }
+
+.ab-body { border:1px solid var(--line); border-top:0; background:var(--surface); padding:11px 12px 12px; }
+.ab-q { font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);
+  font-weight:600; margin-bottom:8px; }
+.ab-choices { display:flex; flex-wrap:wrap; gap:6px; }
+button.ab-btn { font:inherit; font-size:12.5px; font-weight:600; padding:8px 13px; cursor:pointer;
+  background:var(--surface); color:var(--ink); border:1px solid var(--line-strong);
+  display:inline-flex; align-items:center; gap:7px; transition:background .12s; }
+button.ab-btn:hover { background:var(--surface-sunk); }
+button.ab-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+button.ab-btn i { width:9px; height:9px; border-radius:2px; flex:0 0 auto; }
+button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
+
+.ab-verdict { font-size:13px; line-height:1.45; }
+.ab-verdict .big { display:block; font-family:"Barlow Condensed",sans-serif; font-weight:700;
+  font-size:23px; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:3px; }
+.ab-verdict.good .big { color:var(--good); }
+.ab-verdict.bad .big  { color:var(--critical); }
+.ab-verdict .why { color:var(--ink-2); font-size:11.5px; }
+.ab-guess { font-size:11.5px; margin-top:7px; padding-top:7px; border-top:1px solid var(--line); color:var(--ink-2); }
+.ab-guess b { color:var(--ink); }
+
+.ab-log { border:1px solid var(--line); border-top:0; background:var(--surface-sunk); }
+.ab-log div { display:grid; grid-template-columns:auto 1fr auto; gap:9px; padding:5px 12px;
+  font-size:11px; color:var(--ink-2); border-bottom:1px solid var(--line); }
+.ab-log div:last-child { border-bottom:0; }
+.ab-log .n { font-family:"IBM Plex Mono",monospace; color:var(--ink-3); }
+.ab-log .r { text-align:right; font-weight:600; color:var(--ink); }
+.ab-tally { font-size:11px; color:var(--ink-3); padding:7px 2px 0; line-height:1.5; }
 
 #tip { position:fixed; pointer-events:none; opacity:0; background:var(--band); color:var(--band-ink);
   padding:6px 9px; font-size:11.5px; line-height:1.35; border-radius:3px; z-index:50; max-width:230px; transition:opacity .1s; }
@@ -392,6 +430,12 @@ button.pchip:focus-visible { outline:2px solid var(--accent); outline-offset:2px
 
     <div class="pitch-picker" id="pitch-picker" role="group" aria-label="Pitch type"></div>
 
+    <div class="mode-row" role="group" aria-label="Mode">
+      <button class="seg" data-mode="explore" aria-pressed="true">Explore</button>
+      <button class="seg" data-mode="atbat"   aria-pressed="false">Face him</button>
+      <span class="mode-hint" id="mode-hint">Pick a pitch and watch it come in.</span>
+    </div>
+
     <div class="flight-wrap">
       <div>
         <div class="stage">
@@ -412,8 +456,18 @@ button.pchip:focus-visible { outline:2px solid var(--accent); outline-offset:2px
       </div>
 
       <div>
-        <div class="flight-readout"><dl id="flight-readout"></dl></div>
-        <p class="flight-note" id="flight-note"></p>
+        <div class="flight-readout" id="readout-box"><dl id="flight-readout"></dl></div>
+
+        <div id="atbat-box" hidden>
+          <div class="ab-count">
+            <span class="ab-bs"><b id="ab-balls">0</b><i>B</i></span>
+            <span class="ab-bs"><b id="ab-strikes">0</b><i>S</i></span>
+            <span class="ab-vs" id="ab-vs"></span>
+          </div>
+          <div class="ab-body" id="ab-body"></div>
+          <div class="ab-log" id="ab-log"></div>
+          <div class="ab-tally" id="ab-tally"></div>
+        </div>
       </div>
     </div>
   </div><!-- /panel-flight -->
@@ -810,7 +864,7 @@ async function select(p) {
   renderHeader(); renderArsenal();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   paintRamps();
-  if (!document.getElementById("panel-flight").hidden) renderFlight();
+  if (!document.getElementById("panel-flight").hidden) { renderFlight(); if (AB.on) abStart(); }
 
   if (cached) { setMapState(null); renderMaps(); return; }
 
@@ -1155,11 +1209,6 @@ function selectPitch(id) {
   document.getElementById("flight-readout").innerHTML =
     rows.map(r => `<dt>${r[0]}</dt><dd class="num">${r[1]}</dd>`).join("");
 
-  document.getElementById("flight-note").innerHTML =
-    `It falls <strong>${Math.abs(FL.path.drop).toFixed(0)}&Prime;</strong> on the way in. `
-    + `The ${a.name.toLowerCase()} doesn&#39;t rise — spin makes it drop `
-    + `<strong>${Math.abs(FL.path.induced).toFixed(0)}&Prime; less</strong> than a ball with no spin would, `
-    + `which is what a hitter reads as ride.`;
   drawFlight();
 }
 
@@ -1177,6 +1226,225 @@ function renderFlight() {
   if (!avail.length) { FL.path = null; return; }
   selectPitch(avail.some(a => a.id === FL.type) ? FL.type : avail[0].id);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AT-BAT SIMULATOR
+
+   Every step is driven by this pitcher's real data rather than a recorded
+   at-bat, so your swing/take decision is actually yours:
+
+     which pitch    usage[hand][countState]     — his real mix in this count
+     where          a real pitch of that type he threw in this count
+     ball / strike  that pitch's actual plate_x, plate_z vs the rulebook zone
+     whiff          his whiff-per-swing for that pitch in that attack zone
+     foul / in play his foul-per-contact there
+     hit            his hits-per-ball-in-play there
+
+   Per-pitcher rates are shrunk toward the pooled league rate for the same
+   zone (see `shrink` in build_cards.py), so a six-pitch cell cannot hand you
+   a 100% whiff rate.
+   ══════════════════════════════════════════════════════════════════════════ */
+const AB = { on:false, hand:"R", balls:0, strikes:0, pitchNo:0, log:[],
+             pending:null, guess:null, tally:{ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0} };
+
+const ZONE_BIN_NAME = ["heart of the zone", "edge of the zone",
+                       "just off the plate", "well off the plate"];
+function zoneBin(x, z) {
+  const ax = Math.abs(x);
+  if (ax <= 0.558 && z >= 1.83 && z <= 3.17) return 0;
+  if (ax <= 0.83  && z >= 1.59 && z <= 3.41) return 1;
+  if (ax <= 1.108 && z >= 1.32 && z <= 3.68) return 2;
+  return 3;
+}
+const inZone = (x, z) => Math.abs(x) <= 0.83 && z >= 1.59 && z <= 3.41;
+
+function countState(b, k) {
+  if (b === 0 && k === 0) return "first";
+  if (k === 2) return "twok";
+  if (k > b) return "ahead";
+  if (b > k) return "behind";
+  return "even";
+}
+function pickWeighted(weights) {
+  let t = 0; for (const k in weights) t += weights[k];
+  if (t <= 0) return null;
+  let r = Math.random() * t;
+  for (const k in weights) { r -= weights[k]; if (r <= 0) return k; }
+  return Object.keys(weights)[0];
+}
+
+/* a real pitch he threw of this type, in this count, to this hand */
+function samplePitch(typeId, cs, hand) {
+  const pool = state.pitches.filter(p => p.id === typeId && p.hand === hand && p.cs === cs);
+  const fallback = pool.length ? pool
+    : state.pitches.filter(p => p.id === typeId && p.hand === hand);
+  const src = fallback.length ? fallback : state.pitches.filter(p => p.id === typeId);
+  return src.length ? src[(Math.random() * src.length) | 0] : null;
+}
+function outcomeCell(typeId, bin) {
+  const o = (state.p.outcomes || {})[typeId];
+  if (o && o[bin]) return { whiff:o[bin][0], foul:o[bin][1], hit:o[bin][2], hr:o[bin][3], n:o[bin][4] };
+  const l = (DATA.leagueOutcomes || [])[bin] || [0.25, 0.4, 0.32, 0.04];
+  return { whiff:l[0], foul:l[1], hit:l[2], hr:l[3], n:0 };
+}
+
+const $ab = id => document.getElementById(id);
+function abSetCount() {
+  $ab("ab-balls").textContent = AB.balls;
+  $ab("ab-strikes").textContent = AB.strikes;
+  $ab("ab-vs").textContent = `vs ${AB.hand}HH · pitch ${AB.pitchNo + 1}`;
+}
+function abTally() {
+  const t = AB.tally;
+  const pa = t.ab;
+  const rate = pa ? ` · ${(t.h / Math.max(1, t.ab - t.bb)).toFixed(3).replace(/^0/, "")} avg` : "";
+  $ab("ab-tally").innerHTML = pa
+    ? `${pa} PA — ${t.h} hit${t.h === 1 ? "" : "s"}, ${t.so} K, ${t.bb} BB, ${t.out} out${t.out === 1 ? "" : "s"}${rate}`
+      + (t.guesses ? ` · guessed the pitch ${Math.round(100 * t.guessed / t.guesses)}% (${t.guessed}/${t.guesses})` : "")
+    : "";
+}
+function abLog(txt, res) {
+  AB.log.push({ n: AB.pitchNo, txt, res });
+  $ab("ab-log").innerHTML = AB.log.slice(-6).map(e =>
+    `<div><span class="n">${e.n}</span><span>${e.txt}</span><span class="r">${e.res}</span></div>`).join("");
+}
+
+/* ── step 1: guess the pitch ───────────────────────────────────────────── */
+function abAskGuess() {
+  const p = state.p, avail = p.arsenal.filter(a => (p.flight || {})[a.id]);
+  abSetCount();
+  $ab("ab-body").innerHTML =
+    `<div class="ab-q">${AB.balls}-${AB.strikes} · what's coming?</div>`
+    + `<div class="ab-choices">` + avail.map(a =>
+        `<button class="ab-btn" data-guess="${a.id}">`
+        + `<i style="background:var(${SLOTS[p.arsenal.indexOf(a) % 8]})"></i>${a.name}</button>`).join("")
+    + `</div>`;
+  $ab("ab-body").querySelectorAll("[data-guess]").forEach(b =>
+    b.addEventListener("click", () => abThrow(b.dataset.guess)));
+}
+
+/* ── step 2: throw a real pitch from his mix in this count ─────────────── */
+function abThrow(guess) {
+  const p = state.p;
+  AB.guess = guess;
+  const cs = countState(AB.balls, AB.strikes);
+  const mix = ((p.usage || {})[AB.hand] || {})[cs] || {};
+  const usable = {};
+  for (const id in mix) if ((p.flight || {})[id]) usable[id] = mix[id];
+  const typeId = pickWeighted(usable) || (p.arsenal[0] || {}).id;
+  const real = samplePitch(typeId, cs, AB.hand);
+  const a = p.arsenal.find(x => x.id === typeId);
+
+  AB.pending = { typeId, a, loc: real ? [real.x, real.z] : [p.flight[typeId][9], p.flight[typeId][10]] };
+  AB.pitchNo++;
+  AB.tally.guesses++;
+  if (guess === typeId) AB.tally.guessed++;
+
+  selectPitch(typeId);
+  playFlight();
+  $ab("ab-body").innerHTML = `<div class="ab-q">pitch is on the way…</div>`;
+  const wait = Math.min(2400, (FL.path ? FL.path.flight / FL.speed : 0.4) * 1000 + 120);
+  setTimeout(abAskSwing, wait);
+}
+
+/* ── step 3: swing or take ─────────────────────────────────────────────── */
+function abAskSwing() {
+  $ab("ab-body").innerHTML =
+    `<div class="ab-q">swing or take?</div>`
+    + `<div class="ab-choices">`
+    + `<button class="ab-btn wide" data-act="swing">Swing</button>`
+    + `<button class="ab-btn wide" data-act="take">Take</button></div>`;
+  $ab("ab-body").querySelectorAll("[data-act]").forEach(b =>
+    b.addEventListener("click", () => abResolve(b.dataset.act)));
+}
+
+/* ── step 4: resolve against his real rates ────────────────────────────── */
+function abResolve(act) {
+  const { typeId, a, loc } = AB.pending;
+  const [x, z] = loc, bin = zoneBin(x, z), cell = outcomeCell(typeId, bin);
+  const strike = inZone(x, z);
+  const right = AB.guess === typeId;
+  let big, why, cls = "", done = null;
+
+  if (act === "take") {
+    if (strike) { AB.strikes++; big = AB.strikes >= 3 ? "Strike three" : "Strike"; cls = "bad";
+                  why = `${a.name} caught the ${ZONE_BIN_NAME[bin]}.`; }
+    else        { AB.balls++;   big = AB.balls >= 4 ? "Ball four" : "Ball";  cls = "good";
+                  why = `${a.name} finished ${ZONE_BIN_NAME[bin]}.`; }
+  } else {
+    if (Math.random() < cell.whiff) {
+      AB.strikes++; cls = "bad"; big = AB.strikes >= 3 ? "Strike three, swinging" : "Swing and miss";
+      why = `He misses ${Math.round(cell.whiff * 100)}% of swings on the ${a.name.toLowerCase()} ${ZONE_BIN_NAME[bin]}.`;
+    } else if (Math.random() < cell.foul) {
+      if (AB.strikes < 2) AB.strikes++;
+      big = "Foul"; why = `Contact, but off it. ${Math.round(cell.foul * 100)}% of contact there goes foul.`;
+    } else {
+      const hit = Math.random() < cell.hit;
+      if (hit) {
+        const hr = cell.hit > 0 && Math.random() < cell.hr / cell.hit;
+        big = hr ? "Home run" : "Base hit"; cls = "good"; done = "hit";
+        why = `Balls in play off that pitch there land for a hit ${Math.round(cell.hit * 100)}% of the time.`;
+      } else {
+        big = "In play, out"; cls = "bad"; done = "out";
+        why = `${Math.round((1 - cell.hit) * 100)}% of balls in play there are outs.`;
+      }
+    }
+  }
+  if (!done) {
+    if (AB.strikes >= 3) done = "so";
+    else if (AB.balls >= 4) done = "bb";
+  }
+
+  abLog(`${a.name} · ${ZONE_BIN_NAME[bin]}`, big);
+  abSetCount();
+  const sample = cell.n ? `${cell.n} swing${cell.n === 1 ? "" : "s"} there` : "league rate (no sample)";
+  $ab("ab-body").innerHTML =
+    `<div class="ab-verdict ${cls}"><span class="big">${big}</span>`
+    + `<span class="why">${why}</span>`
+    + `<div class="ab-guess">You guessed <b>${(state.p.arsenal.find(v => v.id === AB.guess) || {}).name || "—"}</b>; `
+    + `he threw <b>${a.name}</b>. ${right ? "Right." : "Fooled you."} `
+    + `<span style="opacity:.7">(${sample})</span></div></div>`
+    + `<div class="ab-choices" style="margin-top:10px">`
+    + (done ? `<button class="ab-btn wide" data-next="new">Next batter</button>`
+            : `<button class="ab-btn wide" data-next="go">Next pitch</button>`)
+    + `</div>`;
+
+  if (done) {
+    const t = AB.tally; t.ab++;
+    if (done === "hit") t.h++; else if (done === "so") t.so++;
+    else if (done === "bb") t.bb++; else t.out++;
+  }
+  abTally();
+  $ab("ab-body").querySelector("[data-next]")
+    .addEventListener("click", () => done ? abNewBatter() : abAskGuess());
+}
+
+function abNewBatter() {
+  AB.balls = 0; AB.strikes = 0; AB.pitchNo = 0; AB.log = [];
+  AB.hand = Math.random() < 0.5 ? "R" : "L";
+  $ab("ab-log").innerHTML = "";
+  abAskGuess();
+}
+function abStart() {
+  AB.on = true;
+  AB.tally = { ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0 };
+  abNewBatter(); abTally();
+}
+
+document.querySelectorAll("button.seg[data-mode]").forEach(b =>
+  b.addEventListener("click", () => {
+    document.querySelectorAll("button.seg[data-mode]").forEach(o =>
+      o.setAttribute("aria-pressed", String(o === b)));
+    const ab = b.dataset.mode === "atbat";
+    AB.on = ab;
+    $ab("atbat-box").hidden = !ab;
+    $ab("readout-box").hidden = ab;
+    document.getElementById("pitch-picker").hidden = ab;
+    $ab("mode-hint").textContent = ab
+      ? "Guess the pitch, then decide. Every outcome comes from his real rates."
+      : "Pick a pitch and watch it come in.";
+    if (ab) abStart();
+  }));
 
 /* ── flight controls ───────────────────────────────────────────────────── */
 document.getElementById("btn-play").addEventListener("click", playFlight);
@@ -1206,7 +1474,7 @@ document.querySelectorAll("button.tab").forEach(btn =>
       b.setAttribute("aria-selected", String(b === btn)));
     document.getElementById("panel-report").hidden = which !== "report";
     document.getElementById("panel-flight").hidden = which !== "flight";
-    if (which === "flight") { renderFlight(); playFlight(); }
+    if (which === "flight") { renderFlight(); if (AB.on) abStart(); else playFlight(); }
     else stopFlight();
   }));
 

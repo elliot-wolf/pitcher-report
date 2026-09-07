@@ -120,14 +120,32 @@ Things worth knowing before you touch the camera code:
 - The side view stretches vertically (capped ×4, stated on the stage label)
   because the flight spans ~52 ft across and under 5 ft vertically.
 
-### Hook for the planned at-bat mode
+### At-bat simulator ("Face him")
 
-The intent is a "next pitch" button that sequences a realistic at-bat. The data
-for that is **already in the payload** — `pitcher.usage[hand][countState]`
-carries his real pitch mix for `first / ahead / even / behind / twok`. A
-sequencer only needs to track the count and draw from those weights; no new
-build step. Keep `selectPitch(id)` and `playFlight()` separable so a sequencer
-can drive them.
+Every step is driven by this pitcher's real data rather than a recorded at-bat,
+so the user's swing/take decision is genuinely theirs:
+
+| step | source |
+|---|---|
+| which pitch | `usage[hand][countState]` — his real mix in that count |
+| where | a real pitch of that type he threw in that count, from the packed table |
+| ball / strike | that pitch's actual `plate_x`/`plate_z` vs the rulebook zone |
+| whiff | `outcomes[type][bin][0]` — his whiff-per-swing in that attack zone |
+| foul | `outcomes[type][bin][1]` — foul-per-contact |
+| hit / homer | `outcomes[type][bin][2..3]` — per ball in play |
+
+Four attack zones (`ZONE_BINS`: heart / edge / shadow / chase) keep per-cell
+samples usable. Per-pitcher rates are **shrunk toward the pooled league rate**
+for the same zone (`shrink()`, k=45), so a six-swing cell cannot produce a 100%
+whiff rate. League rates ship as `DATA.leagueOutcomes` and are the fallback
+when a pitcher has no cell.
+
+Sanity check if you change the model — the league rates should stay monotonic:
+heart 14% whiff/swing and 34% hit/BIP, chase 57% whiff and 27% hit. If chasing
+stops being punished, something is wrong.
+
+Deliberately NOT replaying recorded at-bats: that would pin the outcome to what
+the real hitter did, so the user's decision would not matter.
 
 ## Data sources
 

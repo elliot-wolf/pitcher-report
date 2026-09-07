@@ -22,6 +22,10 @@ Search any of ~500 pitchers — starters and relievers, everyone with at least
   pitch from behind the plate, in slow motion, with the strike zone for scale.
   It uses the nine-parameter trajectory model Statcast publishes per pitch, so
   the path on screen is the path the ball actually took.
+- **Face him** — step into the box. Guess what's coming, watch it arrive, then
+  swing or take. The pitch is drawn from his real mix for that count, thrown to
+  a location he actually threw it, and the result comes from his own
+  whiff, foul and hit rates for that pitch in that part of the zone.
 
 The roster is every pitcher with at least 20 innings this season, plus any
 announced probable starter below that line — so whoever is going tonight is in

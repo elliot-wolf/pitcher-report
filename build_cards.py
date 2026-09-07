@@ -183,6 +183,43 @@ def get_statcast(pid, season):
     txt = http(f"{SAVANT}/statcast_search/csv?{q}", timeout=180).decode("utf-8-sig", "replace")
     return list(csv.DictReader(io.StringIO(txt)))
 
+
+# ── outcome model for the at-bat simulator ─────────────────────────────────
+# Four attack zones, following Savant's heart / shadow / chase idea. Coarse
+# enough that a single pitcher has a usable sample in each cell.
+ZONE_BINS = ("heart", "edge", "shadow", "chase")
+def zone_bin(x, z):
+    ax = abs(x)
+    if ax <= 0.558 and 1.83 <= z <= 3.17: return 0      # heart
+    if ax <= 0.83  and 1.59 <= z <= 3.41: return 1      # rest of the rulebook zone
+    if ax <= 1.108 and 1.32 <= z <= 3.68: return 2      # just off the plate
+    return 3                                            # chase / waste
+
+FOUL_DESC = {"foul", "foul_bunt"}
+HIT_EVENTS = {"single", "double", "triple", "home_run"}
+
+def outcome_counts(rows):
+    """swings / whiffs / fouls / balls-in-play / hits / homers, per bin."""
+    acc = [[0, 0, 0, 0, 0, 0] for _ in ZONE_BINS]
+    for r in rows:
+        x, z = f(r, "plate_x"), f(r, "plate_z")
+        if x is None or z is None: continue
+        d, b = r["description"], acc[zone_bin(x, z)]
+        if d not in SWING_DESC: continue
+        b[0] += 1
+        if d in WHIFF_DESC: b[1] += 1
+        elif d in FOUL_DESC: b[2] += 1
+        elif d == "hit_into_play":
+            b[3] += 1
+            if r.get("events") in HIT_EVENTS:
+                b[4] += 1
+                if r.get("events") == "home_run": b[5] += 1
+    return acc
+
+def shrink(x, n, prior, k=45.0):
+    """Pull a thin per-pitcher rate toward the league rate for that bin."""
+    return (x + k * prior) / (n + k) if (n + k) > 0 else prior
+
 # ── per-pitcher build ───────────────────────────────────────────────────────
 def build_pitcher(meta, season):
     pid = meta["id"]
@@ -301,6 +338,8 @@ def build_pitcher(meta, season):
     ext_a = [f(r, "release_extension") for r in rows if f(r, "release_extension")]
     mean0 = lambda a: round(sum(a) / len(a), 2) if a else None
 
+    raw_out = {a["id"]: outcome_counts(by_pt[a["id"]]) for a in arsenal}
+
     st = meta["stat"]
     g = lambda k, d="—": st.get(k, d)
     ip = st.get("inningsPitched", "0")
@@ -331,6 +370,7 @@ def build_pitcher(meta, season):
         "arsenal": arsenal,
         "usage": usage,
         "flight": flight,
+        "_raw_out": raw_out,
         "pitches": "".join(buf),
         "n": len(buf),
     }
@@ -421,6 +461,41 @@ def main():
     print(f"building league baseline from {len(pool):,} pooled pitches…", file=sys.stderr)
     base = baseline_grid(pool)
 
+    # League rates per attack zone, pooled over every card in the build. Thin
+    # per-pitcher cells are shrunk toward these so a 6-pitch sample cannot
+    # produce a 100% whiff rate.
+    tot = [[0] * 6 for _ in ZONE_BINS]
+    for c in cards:
+        for per_bin in c["_raw_out"].values():
+            for i, b in enumerate(per_bin):
+                for j in range(6): tot[i][j] += b[j]
+    lg = []
+    for b in tot:
+        sw, wh, fo, bip, h, hr = b
+        ct = max(1, sw - wh)
+        lg.append({"whiff": wh / max(1, sw), "foul": fo / ct,
+                   "hit": h / max(1, bip), "hr": hr / max(1, bip)})
+    print("  league by zone: " + "  ".join(
+        f"{ZONE_BINS[i]} whiff {lg[i]['whiff']:.0%}/swing, hit {lg[i]['hit']:.0%}/BIP"
+        for i in range(4)), file=sys.stderr)
+
+    for c in cards:
+        outs = {}
+        for pid_, per_bin in c.pop("_raw_out").items():
+            cells = []
+            for i, b in enumerate(per_bin):
+                sw, wh, fo, bip, h, hr = b
+                ct = sw - wh
+                cells.append([
+                    round(shrink(wh, sw,  lg[i]["whiff"]), 3),
+                    round(shrink(fo, ct,  lg[i]["foul"]),  3),
+                    round(shrink(h,  bip, lg[i]["hit"]),   3),
+                    round(shrink(hr, bip, lg[i]["hr"]),    3),
+                    sw,
+                ])
+            outs[pid_] = cells
+        c["outcomes"] = outs
+
     cards.sort(key=lambda c: c["name"].split()[-1])
     print(f"  {sum(1 for c in cards if c['role']=='SP')} SP / {sum(1 for c in cards if c['role']=='RP')} RP", file=sys.stderr)
     payload = {
@@ -428,6 +503,9 @@ def main():
         "built": time.strftime("%Y-%m-%d"),
         "grid": {"nx": NX, "nz": NZ, "bw": BW, "xd": XD, "zd": ZD},
         "baseline": base,
+        "zoneBins": ZONE_BINS,
+        "leagueOutcomes": [[round(v["whiff"],3), round(v["foul"],3),
+                            round(v["hit"],3), round(v["hr"],3)] for v in lg],
         "pitchers": cards,
     }
     with open(a.out, "w") as fh:
