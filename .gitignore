@@ -12,7 +12,7 @@ dist/
 
 # ── Runtime junk ────────────────────────────────────────────────────────────
 refresh.log
-build.log
+build*.log
 launchd.out.log
 launchd.err.log
 .refresh.lock.d/
