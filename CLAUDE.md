@@ -13,30 +13,44 @@ They are reference material only. This repo is public. Both are in
 
 ## Architecture — read this before changing how data flows
 
-A published Claude Artifact's CSP **blocks all cross-origin fetch/XHR**. The
-page can never query Savant or the MLB API at runtime. Data is therefore
-resolved at build time and inlined into the HTML:
+Data is resolved at build time — the page never queries Savant or the MLB API
+at runtime — and is then **split** into a light index and per-pitcher location
+files:
 
 ```
-build_cards.py  →  cards.json  →  bake.py  →  pitcher-card.html
-   (fetch)          (payload)      (inline)      (deliverable)
+build_cards.py  →  cards.json  →  bake.py  →  dist/index.html      (index inlined)
+   (fetch)          (payload)      (split)     dist/p/<id>.json    (locations, fetched)
 ```
 
-`card_template.html` holds a `__PAYLOAD__` placeholder that `bake.py` replaces
-with the JSON. Edit the template, never `pitcher-card.html` — it is generated
-and gitignored.
+`card_template.html` holds a `__PAYLOAD__` placeholder that `bake.py` fills
+with everything except the packed pitch tables. Edit the template, never
+`dist/index.html` — it is generated and gitignored.
 
-On GitHub Pages the CSP restriction does not apply, so a runtime `fetch()` of
-`cards.json` would work there. It is deliberately still baked so the same file
-works in both places. Don't split them without a reason.
+**Why split.** At ~500 pitchers the packed location tables are several MB.
+Inlining them all would make the page unusable on a phone. One pitcher's
+locations ship in the page (`DATA.defaultId`) so the first paint is complete
+without a fetch; every other pitcher is fetched from `p/<id>.json` on select
+and cached in `PITCH_CACHE`. `select()` is async and guards against a stale
+response overwriting a newer selection via `loadSeq`.
+
+**Consequence:** the page no longer works as a single self-contained file for
+the heat maps — it needs `p/` served alongside it. That is why the local dev
+server points at `dist/`, not the project root. Everything except the heat
+maps still works without the fetch.
 
 ## Running it
 
 ```bash
-./refresh.sh                                    # full rebuild, ~5 min
-python3 build_cards.py --limit 60 --out cards.json && python3 bake.py
-python3 -m http.server 8777                     # then open pitcher-card.html
+./refresh.sh                                     # full rebuild, ~12 min
+python3 build_cards.py --min-ip 20 --out cards.json && python3 bake.py
+python3 -m http.server 8777 --directory dist     # serve dist/, not the repo root
 ```
+
+**Roster:** every pitcher with at least 20 IP — starters *and* relievers,
+around 500 of them — plus any announced starter below that cut. It used to be
+"top 60 by games started", which silently dropped real starters: Payton Tolle
+had 137 IP and 24 starts and ranked 71st. Don't reintroduce a rank cap; use an
+innings floor so the criterion is about workload, not about list length.
 
 `refresh.sh` builds to a temp file and only swaps it in after a sanity gate, so
 a failed fetch keeps the last good card. It resolves its own directory, so it
@@ -149,6 +163,13 @@ than inventing it).
 - **macOS has no `flock`.** `refresh.sh` uses an atomic `mkdir` lock.
 - Pitchers with fewer than 300 located pitches are skipped — too thin for
   honest heat maps.
+- **The baseline pool is subsampled** (`BASE_SAMPLE`, 130k per batter hand).
+  The grid is O(cells x pitches) in pure Python; with ~500 pitchers the pool
+  passes a million pitches and the build would take minutes for no statistical
+  gain.
+- Relievers have `role: "RP"` and GS of 0. Anything dividing by games started
+  needs a guard — the season line uses appearances (`Pit/App`) and swaps GS for
+  SV on relievers.
 
 ## Design conventions
 

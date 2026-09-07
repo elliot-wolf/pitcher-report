@@ -87,7 +87,7 @@ def vaa_deg(vy0, vz0, ay, az):
 def _leaders(season):
     """Every pitcher with a season line, keyed by MLBAM id."""
     url = (f"{STATS}/stats?stats=season&group=pitching&season={season}"
-           f"&sportId=1&limit=400&sortStat=inningsPitched&playerPool=ALL")
+           f"&sportId=1&limit=1500&sortStat=inningsPitched&playerPool=ALL")
     d = jget(url)
     by_id = {}
     for s_ in d.get("stats", []):
@@ -133,15 +133,27 @@ def _season_stat(pid, season):
         pass
     return {}, ""
 
-def get_roster(season, limit, probable_days=0):
+def _ip(stat):
+    """innings pitched, '137.2' meaning 137 and 2/3."""
+    v = str(stat.get("inningsPitched", "0") or "0")
+    w, _, f = v.partition(".")
+    try: return int(w or 0) + (int(f or 0) / 3.0)
+    except ValueError: return 0.0
+
+def get_roster(season, min_ip, probable_days=0):
+    """Every pitcher with enough work to support a card — starters and relievers
+    alike — plus anyone announced to start in the next few days."""
     by_id = _leaders(season)
-    base = sorted([r for r in by_id.values() if r["gs"] >= 8], key=lambda r: -r["gs"])[:limit]
+    base = [r for r in by_id.values() if _ip(r["stat"]) >= min_ip]
+    base.sort(key=lambda r: -_ip(r["stat"]))
     have = {r["id"] for r in base}
+    n_sp = sum(1 for r in base if r["gs"] >= 5)
+    print(f"  {len(base)} with >= {min_ip} IP  ({n_sp} starters, {len(base)-n_sp} relievers)",
+          file=sys.stderr)
 
     if probable_days > 0:
-        probs = _probables(season, probable_days)
         added = 0
-        for pid, name in probs.items():
+        for pid, name in _probables(season, probable_days).items():
             if pid in have: continue
             if pid in by_id:
                 r = dict(by_id[pid])
@@ -150,9 +162,8 @@ def get_roster(season, limit, probable_days=0):
                 if not st: continue
                 r = {"id": pid, "name": name, "team": team,
                      "gs": int(st.get("gamesStarted") or 0), "stat": st}
-            if r["gs"] < 1: continue          # not actually a starter
             base.append(r); have.add(pid); added += 1
-        print(f"  + {added} probable starter(s) not already in the top {limit}", file=sys.stderr)
+        print(f"  + {added} announced starter(s) below the innings cut", file=sys.stderr)
     return base
 
 def get_bio(pid):
@@ -304,7 +315,10 @@ def build_pitcher(meta, season):
             "K%": round(100 * int(st.get("strikeOuts") or 0) / bf, 1),
             "BB%": round(100 * int(st.get("baseOnBalls") or 0) / bf, 1),
             "HR": g("homeRuns"), "GS": meta["gs"],
-            "AVG": g("avg"), "Pit/GS": round(len(rows) / max(1, meta["gs"])),
+            "G": int(st.get("gamesPlayed") or 0),
+            "SV": int(st.get("saves") or 0),
+            "AVG": g("avg"),
+            "Pit/App": round(len(rows) / max(1, int(st.get("gamesPlayed") or 1))),
         },
         "run": {
             "SB": int(st.get("stolenBases") or 0),
@@ -313,6 +327,7 @@ def build_pitcher(meta, season):
             "WP": int(st.get("wildPitches") or 0),
             "runnersOn": round(100 * sum(1 for r in rows if r.get("on_1b") or r.get("on_2b") or r.get("on_3b")) / len(rows)),
         },
+        "role": "SP" if meta["gs"] >= 5 else "RP",
         "arsenal": arsenal,
         "usage": usage,
         "flight": flight,
@@ -325,13 +340,22 @@ def build_pitcher(meta, season):
 NX, NZ, BW = 24, 26, 0.42
 XD, ZD = (-1.95, 1.95), (0.35, 4.55)
 
+BASE_SAMPLE = 130_000        # per batter hand; well past the point of diminishing returns
+
 def baseline_grid(pool):
-    """Location-matched whiff & barrel rates from every pitch we pulled."""
+    """Location-matched whiff & barrel rates from the pooled sample.
+
+    The grid is O(cells x pitches). With ~500 pitchers the pool runs to a
+    million-plus pitches, which is minutes of pure Python for no statistical
+    gain, so each hand is subsampled."""
+    import random
     cw = (XD[1] - XD[0]) / (NX - 1)
     ch = (ZD[1] - ZD[0]) / (NZ - 1)
     out = {}
     for stand, key in ((0, "R"), (1, "L")):
         pts = [p for p in pool if p[2] == stand]
+        if len(pts) > BASE_SAMPLE:
+            pts = random.Random(20260907).sample(pts, BASE_SAMPLE)
         wg, bg = [], []
         for j in range(NZ):
             gz = ZD[1] - ch * j
@@ -363,15 +387,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", type=int, default=default_season(),
                     help="defaults to the season currently in progress")
-    ap.add_argument("--limit", type=int, default=60)
+    ap.add_argument("--min-ip", type=float, default=20.0,
+                    help="minimum innings pitched to earn a card")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out", default="cards.json")
     ap.add_argument("--probable-days", type=int, default=2,
                     help="also include announced starters for the next N days (0 to disable)")
     a = ap.parse_args()
 
-    print(f"roster: top {a.limit} by GS + probables for the next {a.probable_days}d, {a.season}", file=sys.stderr)
-    roster = get_roster(a.season, a.limit, a.probable_days)
+    print(f"roster: >= {a.min_ip} IP + probables for the next {a.probable_days}d, {a.season}", file=sys.stderr)
+    roster = get_roster(a.season, a.min_ip, a.probable_days)
     print(f"  got {len(roster)}", file=sys.stderr)
 
     cards, pool = [], []
@@ -397,6 +422,7 @@ def main():
     base = baseline_grid(pool)
 
     cards.sort(key=lambda c: c["name"].split()[-1])
+    print(f"  {sum(1 for c in cards if c['role']=='SP')} SP / {sum(1 for c in cards if c['role']=='RP')} RP", file=sys.stderr)
     payload = {
         "season": a.season,
         "built": time.strftime("%Y-%m-%d"),

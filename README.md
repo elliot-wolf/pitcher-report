@@ -6,7 +6,8 @@ Statcast data and refreshed every morning.
 
 **[View the card →](https://elliot-wolf.github.io/pitcher-report/)**
 
-Search any of ~85 starters. For each one:
+Search any of ~500 pitchers — starters and relievers, everyone with at least
+20 innings. For each one:
 
 - **Arsenal & shape** — usage, velocity, induced vertical break, horizontal
   break (arm-side positive), spin, and vertical approach angle, plus in-zone
@@ -22,9 +23,9 @@ Search any of ~85 starters. For each one:
   It uses the nine-parameter trajectory model Statcast publishes per pitch, so
   the path on screen is the path the ball actually took.
 
-The roster is the 60 starters with the most starts, plus every announced
-probable starter for the next two days — so whoever is going tonight is in
-there, even a spot starter or an opener.
+The roster is every pitcher with at least 20 innings this season, plus any
+announced probable starter below that line — so whoever is going tonight is in
+there, along with the arm they bring in to face one hitter in the seventh.
 
 ## How it works
 
@@ -34,8 +35,10 @@ build_cards.py  →  cards.json  →  bake.py  →  pitcher-card.html
 
 `build_cards.py` pulls pitch-by-pitch data from Baseball Savant and season
 lines from the MLB Stats API, computes the arsenal aggregates, and packs each
-pitcher's location table into a compact string (6 characters per pitch, so ~85
-pitchers fit in about 1.5 MB). `bake.py` inlines that payload into the page.
+pitcher's location table into a compact string at six characters per pitch.
+`bake.py` then splits the result: everything except those location tables is
+inlined into the page, and each pitcher's locations become `p/<id>.json`,
+fetched on demand. One pitcher ships inline so the first paint needs no fetch.
 
 A GitHub Actions workflow runs the whole thing daily at 12:43 UTC and deploys
 to Pages, so the published card is current without anyone's laptop being on —
@@ -50,8 +53,8 @@ off as current.
 ```bash
 git clone https://github.com/elliot-wolf/pitcher-report.git
 cd pitcher-report
-./refresh.sh                 # ~5 minutes; writes cards.json + pitcher-card.html
-python3 -m http.server 8777  # then open http://localhost:8777/pitcher-card.html
+./refresh.sh                              # ~12 minutes; writes dist/
+python3 -m http.server 8777 --directory dist   # then open http://localhost:8777/
 ```
 
 No API keys, no dependencies beyond the Python standard library.

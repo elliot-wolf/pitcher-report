@@ -1,14 +1,52 @@
 #!/usr/bin/env python3
-"""bake.py — inline cards.json into card_template.html -> pitcher-card.html"""
-import json, os, sys
+"""
+bake.py — split cards.json into a light index + per-pitcher location files.
 
-tpl  = open("card_template.html").read()
-data = open("cards.json").read()
-json.loads(data)                                    # fail loudly on bad JSON
+At ~500 pitchers the packed pitch tables run to several MB, far too much to
+inline. Everything a card needs *except* those tables goes into the page; the
+location data for one pitcher is fetched on demand from p/<id>.json.
+
+    dist/index.html   the page, with the index inlined
+    dist/p/<id>.json  {"pitches": "<packed>"} per pitcher
+"""
+import json, os, shutil, sys
+
+SRC, TPL, OUTDIR = "cards.json", "card_template.html", "dist"
+
+data = json.load(open(SRC))
+tpl = open(TPL).read()
 if "__PAYLOAD__" not in tpl:
     sys.exit("template is missing the __PAYLOAD__ placeholder")
-# </script> inside a <script> block would close it early
-data = data.replace("</", "<\\/")
-out = tpl.replace("__PAYLOAD__", data)
-open("pitcher-card.html", "w").write(out)
-print(f"pitcher-card.html — {os.path.getsize('pitcher-card.html')/1e6:.2f} MB")
+
+shutil.rmtree(OUTDIR, ignore_errors=True)
+os.makedirs(f"{OUTDIR}/p", exist_ok=True)
+
+# The pitcher shown on first paint keeps their locations inline, so the page
+# is useful before any fetch resolves.
+default = max(data["pitchers"], key=lambda p: p.get("n", 0))
+default_id = default["id"]
+
+split = 0
+for p in data["pitchers"]:
+    packed = p.pop("pitches", "")
+    if not packed:
+        continue
+    with open(f"{OUTDIR}/p/{p['id']}.json", "w") as fh:
+        json.dump({"pitches": packed}, fh, separators=(",", ":"))
+    split += 1
+    if p["id"] == default_id:
+        p["pitches"] = packed          # inline this one only
+
+data["defaultId"] = default_id
+payload = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
+open(f"{OUTDIR}/index.html", "w").write(tpl.replace("__PAYLOAD__", payload))
+
+# keep a single-file build too, for opening straight off disk
+shutil.copy(f"{OUTDIR}/index.html", "pitcher-card.html")
+
+idx = os.path.getsize(f"{OUTDIR}/index.html")
+tot = sum(os.path.getsize(f"{OUTDIR}/p/{f}") for f in os.listdir(f"{OUTDIR}/p"))
+print(f"index.html : {idx/1e6:.2f} MB  ({len(data['pitchers'])} pitchers, "
+      f"locations for {default['name']} inlined)")
+print(f"p/*.json   : {split} files, {tot/1e6:.2f} MB total, "
+      f"{tot/max(1,split)/1024:.0f} KB each")

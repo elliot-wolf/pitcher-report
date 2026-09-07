@@ -10,7 +10,7 @@ PY="${PYTHON:-$(command -v python3)}"
 LOG="$DIR/refresh.log"
 LOCK="$DIR/.refresh.lock.d"
 SEASON="${SEASON:-2026}"
-LIMIT="${LIMIT:-60}"
+MIN_IP="${MIN_IP:-20}"
 
 cd "$DIR" || exit 1
 # mkdir is atomic on macOS; flock is not available here.
@@ -31,12 +31,12 @@ if [ -f "$LOG" ] && [ "$(wc -l <"$LOG")" -gt 800 ]; then
   tail -n 400 "$LOG" >"$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 fi
 
-say "── refresh start (season $SEASON, limit $LIMIT)"
+say "── refresh start (season $SEASON, min IP $MIN_IP)"
 
 # Build to a temp file so a failed/partial fetch never clobbers a good card.
 TMP="$DIR/.cards.new.json"
-if ! "$PY" build_cards.py --season "$SEASON" --limit "$LIMIT" --probable-days 2 \
-        --out "$TMP" >>"$LOG" 2>&1; then
+if ! "$PY" build_cards.py --season "$SEASON" --min-ip "$MIN_IP" --probable-days 2 \
+        --workers 5 --out "$TMP" >>"$LOG" 2>&1; then
   say "!! build_cards.py failed — keeping yesterday's card"
   rm -f "$TMP"; exit 1
 fi
@@ -46,7 +46,7 @@ if ! "$PY" - "$TMP" <<'PYCHK' >>"$LOG" 2>&1
 import json, sys
 d = json.load(open(sys.argv[1]))
 n = len(d.get("pitchers", []))
-assert n >= 30, f"only {n} pitchers in payload"
+assert n >= 300, f"only {n} pitchers in payload"
 assert d.get("baseline", {}).get("R", {}).get("n", 0) > 20000, "baseline too thin"
 print(f"   sanity ok: {n} pitchers, baseline {d['baseline']['R']['n']+d['baseline']['L']['n']:,} pitches")
 PYCHK
@@ -61,5 +61,5 @@ if ! "$PY" bake.py >>"$LOG" 2>&1; then
   exit 1
 fi
 
-say "✓ refreshed — $(ls -lh pitcher-card.html | awk '{print $5}') · $(date '+%F %T')"
+say "✓ refreshed — $(du -sh dist | cut -f1) in dist/ · $(date '+%F %T')"
 date '+%F %T' > "$DIR/.last-refresh"

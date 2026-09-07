@@ -163,6 +163,11 @@ button.seg[aria-pressed="true"] { background:var(--band); color:var(--band-ink);
 button.seg:focus-visible, #q:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
 /* ── maps ───────────────────────────────────────────────────────── */
+#map-grid[data-state]::before {
+  content:attr(data-state); grid-column:1/-1; padding:26px 4px; text-align:center;
+  font-size:12px; color:var(--ink-3); letter-spacing:0.04em;
+}
+#map-grid[data-state] > *:not(:first-child) { display:none; }
 .maps { display:grid; grid-template-columns:62px repeat(5,minmax(0,1fr)); gap:8px; align-items:start; }
 .map-head { font-family:"Barlow Condensed",sans-serif; font-size:12px; font-weight:700; letter-spacing:0.08em;
   text-transform:uppercase; color:var(--ink-2); padding-bottom:2px; border-bottom:1px solid var(--line); text-align:center; }
@@ -260,7 +265,7 @@ button.pchip:focus-visible { outline:2px solid var(--accent); outline-offset:2px
       </svg>
       <input id="q" type="search" autocomplete="off" spellcheck="false"
              role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list"
-             placeholder="Search a starting pitcher — name or team">
+             placeholder="Search any pitcher — name or team">
       <span class="search-count" id="rostercount"></span>
     </div>
     <div id="results" role="listbox" aria-label="Pitchers" hidden></div>
@@ -725,12 +730,14 @@ function renderHeader() {
     (rel.x !== null && rel.z !== null) ? `Rel <b class="num">${rel.x}&#39;</b>, <b class="num">${rel.z}&#39;</b>` : null,
   ].filter(Boolean).join(" <span style='opacity:.4'>·</span> ");
   document.getElementById("p-team").innerHTML =
-    `<span class="big">${p.team}</span><span class="num">${DATA.season} · ${p.season.GS} GS · ${p.n.toLocaleString()} pitches</span>`
+    `<span class="big">${p.team}</span><span class="num">${DATA.season} · ${p.role} · ${p.season.G} G · ${p.n.toLocaleString()} pitches</span>`
     + `<br>${freshnessChip()}`;
 
   const S = p.season;
   const cells = [["IP",S.IP],["ERA",S.ERA],["WHIP",S.WHIP],["K%",S["K%"]],
-                 ["BB%",S["BB%"]],["HR",S.HR],["AVG",S.AVG],["Pit/GS",S["Pit/GS"]]];
+                 ["BB%",S["BB%"]],["HR",S.HR],["AVG",S.AVG]];
+  cells.push(p.role === "RP" ? ["SV", S.SV] : ["GS", S.GS]);
+  cells.push(["Pit/App", S["Pit/App"]]);
   d3.select("#statline").selectAll(":scope > div").data(cells).join("div")
     .html(d => `<dt>${d[0]}</dt><dd class="num">${d[1]}</dd>`);
   document.getElementById("season-note").textContent = `${DATA.season} regular season`;
@@ -748,8 +755,8 @@ function renderHeader() {
 
   document.getElementById("baseline-note").innerHTML =
     `Density panels show <em>where he lives</em>. Whiff+ and Damage+ show <em>what happened there</em>, `
-    + `indexed to a location-matched baseline built from all `
-    + `<span class="num">${(DATA.baseline.R.n + DATA.baseline.L.n).toLocaleString()}</span> pitches in this build — `
+    + `indexed to a location-matched baseline pooled from `
+    + `<span class="num">${(DATA.baseline.R.n + DATA.baseline.L.n).toLocaleString()}</span> pitches across every arm in this build — `
     + `red is where hitters won.`;
 }
 
@@ -763,16 +770,61 @@ function paintRamps() {
 function renderAll() {
   renderHeader(); renderArsenal();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
-  renderMaps(); paintRamps();
+  if (state.pitches.length) renderMaps();
+  paintRamps();
   if (!document.getElementById("panel-flight").hidden) renderFlight();
 }
 
-function select(p) {
+/* Location tables live in p/<id>.json — at ~500 pitchers they are far too
+   large to inline. One pitcher ships in the page so first paint is useful;
+   the rest are fetched on demand and cached. */
+const PITCH_CACHE = new Map();
+if (DATA.defaultId) {
+  const d0 = DATA.pitchers.find(x => x.id === DATA.defaultId);
+  if (d0 && d0.pitches) PITCH_CACHE.set(d0.id, d0.pitches);
+}
+let loadSeq = 0;
+
+async function loadPitches(p) {
+  if (PITCH_CACHE.has(p.id)) return PITCH_CACHE.get(p.id);
+  const res = await fetch(`p/${p.id}.json`, { cache: "force-cache" });
+  if (!res.ok) throw new Error(`p/${p.id}.json → ${res.status}`);
+  const packed = (await res.json()).pitches || "";
+  PITCH_CACHE.set(p.id, packed);
+  return packed;
+}
+
+function setMapState(msg) {
+  const g = document.getElementById("map-grid");
+  if (msg) g.setAttribute("data-state", msg); else g.removeAttribute("data-state");
+}
+
+async function select(p) {
+  const seq = ++loadSeq;
   state.p = p;
-  state.pitches = decode(p.pitches, p.arsenal);
-  renderAll();
   closeResults();
   document.getElementById("q").value = "";
+
+  const cached = PITCH_CACHE.get(p.id);
+  state.pitches = cached ? decode(cached, p.arsenal) : [];
+  renderHeader(); renderArsenal();
+  renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
+  paintRamps();
+  if (!document.getElementById("panel-flight").hidden) renderFlight();
+
+  if (cached) { setMapState(null); renderMaps(); return; }
+
+  setMapState("Loading pitch locations\u2026");
+  try {
+    const packed = await loadPitches(p);
+    if (seq !== loadSeq) return;               // a newer selection won
+    state.pitches = decode(packed, p.arsenal);
+    setMapState(null);
+    renderMaps();
+  } catch (e) {
+    if (seq !== loadSeq) return;
+    setMapState("Pitch locations unavailable \u2014 " + e.message);
+  }
 }
 
 /* ── search ────────────────────────────────────────────────────────────── */
@@ -780,12 +832,12 @@ const qEl = document.getElementById("q"), resEl = document.getElementById("resul
 let cursor = -1, shown = [];
 const norm = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const ROSTER = DATA.pitchers.map(p => ({ p, key: norm(p.name + " " + p.team) }));
-document.getElementById("rostercount").textContent = `${DATA.pitchers.length} starters`;
+document.getElementById("rostercount").textContent = `${DATA.pitchers.length} pitchers`;
 
 function openResults(list) {
   shown = list; cursor = list.length ? 0 : -1;
   if (!list.length) {
-    resEl.innerHTML = `<div class="res-empty">No starter matches that. This build covers the ${DATA.pitchers.length} pitchers with the most starts in ${DATA.season}.</div>`;
+    resEl.innerHTML = `<div class="res-empty">No starter matches that. This build covers the ${DATA.pitchers.length} pitchers with at least 20 innings in ${DATA.season}.</div>`;
   } else {
     const q = norm(qEl.value.trim());
     resEl.innerHTML = list.map((r, i) => {
@@ -796,8 +848,8 @@ function openResults(list) {
       }
       return `<div class="res" role="option" data-i="${i}" aria-selected="${i===cursor}">
         <span class="rn">${nm}</span>
-        <span class="rt">${r.p.team} · ${r.p.throws}HP</span>
-        <span class="rg num">${r.p.season.GS} GS</span></div>`;
+        <span class="rt">${r.p.team} · ${r.p.throws}HP ${r.p.role}</span>
+        <span class="rg num">${r.p.season.IP} IP</span></div>`;
     }).join("");
   }
   resEl.hidden = false; qEl.setAttribute("aria-expanded","true");
@@ -834,7 +886,7 @@ document.querySelectorAll("button.seg").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll("button.seg").forEach(b => b.setAttribute("aria-pressed", String(b === btn)));
     state.count = btn.dataset.count;
-    renderMaps();
+    if (state.pitches.length) renderMaps();
   });
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
@@ -1158,6 +1210,8 @@ document.querySelectorAll("button.tab").forEach(btn =>
     else stopFlight();
   }));
 
-/* open on the highest-usage arm in the build so the page shows work at rest */
-select(DATA.pitchers.slice().sort((a,b) => b.n - a.n)[0]);
+/* Open on the pitcher whose locations are inlined, so the first paint is
+   complete without waiting on a fetch. */
+select(DATA.pitchers.find(p => p.id === DATA.defaultId)
+       || DATA.pitchers.slice().sort((a,b) => (b.n||0) - (a.n||0))[0]);
 </script>

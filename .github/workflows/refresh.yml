@@ -10,9 +10,9 @@ on:
     - cron: "43 12 * * *"
   workflow_dispatch:        # lets you rebuild on demand from the Actions tab
     inputs:
-      limit:
-        description: "How many starters to pull (by games started)"
-        default: "60"
+      min_ip:
+        description: "Minimum innings pitched to earn a card"
+        default: "20"
       season:
         description: "Season (blank = the season currently in progress)"
         default: ""
@@ -42,14 +42,14 @@ jobs:
       - name: Build cards from Savant + StatsAPI
         env:
           SEASON: ${{ github.event.inputs.season }}
-          LIMIT:  ${{ github.event.inputs.limit || '60' }}
+          MIN_IP: ${{ github.event.inputs.min_ip || '20' }}
         run: |
           # No --season means build_cards.py picks the season in progress,
           # so this keeps working after the calendar rolls over.
           ARGS=""
           [ -n "$SEASON" ] && ARGS="--season $SEASON"
-          python3 build_cards.py $ARGS --limit "$LIMIT" \
-            --probable-days 2 --workers 4 --out cards.json
+          python3 build_cards.py $ARGS --min-ip "$MIN_IP" \
+            --probable-days 2 --workers 5 --out cards.json
 
       - name: Sanity-check the payload
         run: |
@@ -58,7 +58,7 @@ jobs:
           d = json.load(open("cards.json"))
           n = len(d["pitchers"])
           base = d["baseline"]["R"]["n"] + d["baseline"]["L"]["n"]
-          assert n >= 30, f"only {n} pitchers"
+          assert n >= 300, f"only {n} pitchers"
           assert base > 20000, f"baseline too thin ({base})"
           print(f"ok: {n} pitchers, {base:,} baseline pitches, built {d['built']}")
           PY
@@ -68,11 +68,12 @@ jobs:
 
       - name: Assemble the site
         run: |
-          mkdir -p _site
-          cp pitcher-card.html _site/index.html
-          # keep the raw data downloadable alongside the page
-          cp cards.json _site/cards.json
+          # bake.py writes dist/index.html plus dist/p/<id>.json per pitcher.
+          # cards.json itself is now several MB and is not published.
+          rm -rf _site && mkdir -p _site
+          cp -R dist/. _site/
           echo "Built $(date -u '+%Y-%m-%d %H:%M UTC')" > _site/BUILD.txt
+          echo "index: $(du -h _site/index.html | cut -f1),            $(ls _site/p | wc -l) pitcher files totalling $(du -sh _site/p | cut -f1)"
 
       - uses: actions/upload-pages-artifact@v3
         with:
