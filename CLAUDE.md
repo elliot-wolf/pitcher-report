@@ -103,7 +103,17 @@ Things worth knowing before you touch the camera code:
   clipping it at the bottom edge reads naturally.
 - Release time is negative. Parameters are stated at y = 50, but release is at
   y = 60.5 − extension ≈ 54 ft, which is *behind* the reference point. Same
-  quadratic root, no special case. `60.5 − extension` matches Savant's own
+  quadratic root, no special case.
+- **Two reference frames, do not mix them.** `vx0/vy0/vz0` and `ax/ay/az` are
+  stated at y = 50 ft; `release_pos_x` / `release_pos_z` are measured at the
+  release point (~53.7 ft). Feeding the release position in as the y=50 origin
+  slides the entire path — it put the release 4 inches off and the plate
+  crossing 4.4 inches off. `originAt50()` solves back for the true origin;
+  after it, release error is 0.05 inches worst case across every pitcher.
+- Savant's `plate_x` / `plate_z` empirically correspond to about y = 0.5–0.7 ft
+  (mid-plate), not the front edge at y = 1.417. The drawn path ends at the
+  front edge by convention, leaving a sub-inch difference. Ball/strike calls in
+  the simulator read the stored values directly, so they are unaffected. `60.5 − extension` matches Savant's own
   `release_pos_y` column exactly (median difference 0.0000 ft over 1,134
   pitches), so extension is honoured per pitcher.
 - **The camera fit must be SHARED across pitchers, not per pitcher.** Fitting
@@ -117,8 +127,17 @@ Things worth knowing before you touch the camera code:
   projection: at 32 ft, a pitcher's arm-side release position shifted screen-x
   more than his extension did. Reading release distance back out of pixel
   position now recovers the true value to within 0.21 ft.
-- The side view stretches vertically (capped ×4, stated on the stage label)
-  because the flight spans ~52 ft across and under 5 ft vertically.
+- Both cameras are now true to proportion. The side view used to stretch
+  vertically ×4 so the arc read as a curve, but once the mound and pitcher were
+  drawn that made a 6'6" arm look 26 ft tall. `fitView`'s `maxStretch` argument
+  still exists if you need it — the label states any stretch above 1.05.
+- **The mound and the figure are real geometry, not decoration.** The mound is
+  regulation (18 ft across, centred 59 ft from the plate, 10 in at the table),
+  modelled radially so it reads from any camera and so the pitcher's feet stand
+  on the same `moundZ()`. The figure's hand sits on the *measured release point
+  of the pitch being shown*, so it shifts with the arsenal; everything else is
+  proportioned off his listed height. A 6'6" pitcher draws 6.5 ft tall. Both
+  are included in the shared-view fit or they clip in the side view.
 
 ### At-bat simulator ("Face him")
 

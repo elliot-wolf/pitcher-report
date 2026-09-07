@@ -993,21 +993,34 @@ function solveT(T, yTarget) {
   if (disc < 0) return null;
   return (-vy0 - Math.sqrt(disc)) / ay;
 }
-function posAt(T, t) {
-  return [ T[0] + T[2]*t + 0.5*T[5]*t*t,
+/* Statcast states vx0/vy0/vz0 and ax/ay/az at y = 50 ft, but release_pos_x
+   and release_pos_z are measured at the release point (y = 60.5 - extension,
+   about 53.7 ft). Treating the release position as the y=50 origin mixes two
+   reference frames and slides the whole path — it missed the measured plate
+   location by about 4 inches. Solve back for the true origin at y=50. */
+function originAt50(T) {
+  const tRel = solveT(T, 60.5 - T[8]);
+  if (tRel === null) return [T[0], T[1]];
+  return [ T[0] - (T[2]*tRel + 0.5*T[5]*tRel*tRel),
+           T[1] - (T[4]*tRel + 0.5*T[7]*tRel*tRel) ];
+}
+function posAt(T, t, o) {
+  const O = o || originAt50(T);
+  return [ O[0] + T[2]*t + 0.5*T[5]*t*t,
            Y_REF + T[3]*t + 0.5*T[6]*t*t,
-           T[1] + T[4]*t + 0.5*T[7]*t*t ];
+           O[1] + T[4]*t + 0.5*T[7]*t*t ];
 }
 
 function buildPath(T) {
   const tRel = solveT(T, Math.min(60.5 - T[8], Y_REF + 6));
   const tEnd = solveT(T, Y_PLATE);
   if (tRel === null || tEnd === null || !(tEnd > tRel)) return null;
+  const O = originAt50(T);
   const N = 260, pts = [];
-  for (let i = 0; i <= N; i++) pts.push(posAt(T, tRel + (tEnd - tRel) * (i / N)));
+  for (let i = 0; i <= N; i++) pts.push(posAt(T, tRel + (tEnd - tRel) * (i / N), O));
   const rel = pts[0], end = pts[N];
   /* where the same pitch would cross the plate with gravity only (no spin) */
-  const zSpinless = T[1] + T[4]*tEnd + 0.5*G*tEnd*tEnd;
+  const zSpinless = O[1] + T[4]*tEnd + 0.5*G*tEnd*tEnd;
   return {
     pts, flight: tEnd - tRel, relY: rel[1],
     drop: (end[2] - rel[2]) * 12,
@@ -1068,6 +1081,68 @@ function projector(camKey, V) {
   };
 }
 
+/* ── the mound, to regulation ────────────────────────────────────────────
+   18 ft across, centred 59 ft from the back point of the plate, 10 inches
+   high at the table. Modelled radially — the real mound has a flat table and
+   a specific front slope, but radial reads correctly from any camera and the
+   pitcher's feet stand on the same function. */
+const MOUND_C = 59, MOUND_R = 9, MOUND_H = 10 / 12;
+function moundZ(x, y) {
+  const r = Math.hypot(x, y - MOUND_C);
+  if (r <= 2.5) return MOUND_H;
+  if (r >= MOUND_R) return 0;
+  return MOUND_H * Math.pow((MOUND_R - r) / (MOUND_R - 2.5), 1.5);
+}
+function moundRing(r, n = 40) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const x = Math.cos(a) * r, y = MOUND_C + Math.sin(a) * r;
+    pts.push([x, y, moundZ(x, y)]);
+  }
+  return pts;
+}
+
+/* ── the pitcher ─────────────────────────────────────────────────────────
+   Hand sits on the measured release point of the pitch being shown, so the
+   figure moves with the arsenal. Everything else is proportioned off his
+   listed height, and his feet stand on moundZ, so a 6'7" arm and a 5'10" arm
+   are drawn at their real statures. */
+function heightFt(str) {
+  const m = /(\d+)\s*'\s*(\d+)?/.exec(str || "");
+  return m ? (+m[1] + (+(m[2] || 0)) / 12) : 6.2;
+}
+function pitcherRig(p, hand) {
+  const H = heightFt(p.height);
+  const side = p.throws === "L" ? 1 : -1;          // arm side in plate_x terms
+  const [hx, hy, hz] = hand;
+
+  const ffY = hy + 0.55, ffX = hx * 0.18;
+  const ffZ = moundZ(ffX, ffY);
+  const hipZ = ffZ + 0.46 * H;
+  const shZ  = hipZ + 0.30 * H;
+
+  const hip      = [hx * 0.42, hy + 2.25, hipZ];
+  const shoulder = [hx * 0.46, hy + 1.75, shZ];
+  const headR    = 0.055 * H;
+  const head     = [shoulder[0] - side * 0.24, shoulder[1] + 0.26, shZ + 0.055 * H + headR];
+  const elbow    = [(hx + shoulder[0]) / 2 + side * 0.18,
+                    (hy + shoulder[1]) / 2 + 0.15,
+                    (hz + shZ) / 2 + 0.10];
+  const glove    = [-hx * 0.40, hy + 1.05, shZ - 0.55];
+  const bfX = side * 0.5, bfY = 60.4;
+  return {
+    H, headR, head,
+    bones: [
+      [[bfX, bfY, moundZ(bfX, bfY)], hip],       // back leg, still on the rubber
+      [[ffX, ffY, ffZ], hip],                    // front leg, planted
+      [hip, shoulder],                           // torso
+      [shoulder, glove],                         // glove side
+      [shoulder, elbow], [elbow, [hx, hy, hz]]   // throwing arm to the ball
+    ]
+  };
+}
+
 const PLATE_XY = [[-0.708,1.417],[0.708,1.417],[0.708,0.708],[0,0],[-0.708,0.708]];
 /* front edge of the rubber: 60.5 ft from the plate, atop a 10-inch mound */
 const RUBBER = [[-1, 60.5, 0.833], [1, 60.5, 0.833]];
@@ -1092,9 +1167,25 @@ function sharedView(W, H) {
       pts.push(pa.pts[pa.pts.length - 1]);
     }
   }
-  pts.push(...ZONE3, ...RUBBER);
+  /* the mound reaches back to y=68 and the pitcher's head stands ~6.5 ft up;
+     both must be inside the fit or they clip in the side view */
+  pts.push(...ZONE3, ...RUBBER, ...moundRing(MOUND_R, 16));
+  for (const p of DATA.pitchers) {
+    const fl = p.flight || {};
+    for (const id in fl) {
+      const pa = buildPath(fl[id]); if (!pa) continue;
+      const rig = pitcherRig(p, pa.pts[0]);
+      pts.push(rig.head);
+      rig.bones.forEach(b => pts.push(b[0], b[1]));
+      break;                       // one pitch per pitcher is enough for extremes
+    }
+  }
+  /* Both views are now true to proportion. The side view used to stretch
+     vertically x4 so the arc read as a curve, but with the mound and the
+     pitcher in frame that exaggeration made a 6'6" arm look 26 ft tall —
+     and stature is the point of drawing him at all. */
   SHARED_VIEW = { catcher: fitView("catcher", pts, W, H, 1),
-                  oblique: fitView("oblique", pts, W, H, 4) };
+                  oblique: fitView("oblique", pts, W, H, 1) };
   return SHARED_VIEW;
 }
 
@@ -1115,6 +1206,36 @@ function drawFlight() {
     g.setLineDash(dash || []); g.strokeStyle = stroke; g.lineWidth = w; g.stroke();
     g.setLineDash([]);
   };
+
+  /* mound contours and the pitcher, behind everything else */
+  if (FL.path) {
+    [MOUND_R, 6.6, 4.2, 2.5].forEach((r, i) => {
+      const ring = moundRing(r).map(pr);
+      if (ring.some(q => !q)) return;
+      g.beginPath();
+      ring.forEach((q, k) => k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]));
+      g.strokeStyle = line; g.globalAlpha = i === 0 ? 0.75 : 0.34;
+      g.lineWidth = i === 0 ? 2 : 1.2; g.stroke();
+    });
+    g.globalAlpha = 1;
+
+    const rig = pitcherRig(state.p, FL.path.pts[0]);
+    g.strokeStyle = ink3; g.lineCap = "round"; g.globalAlpha = 0.9;
+    const hp = pr(rig.head);
+    const limb = hp ? Math.max(2, (CAMS[FL.cam].tag ? 1 : 1) * V.fx * 0.055 / hp[2]) : 2.5;
+    rig.bones.forEach(([a, b]) => {
+      const A = pr(a), B = pr(b);
+      if (!A || !B) return;
+      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]);
+      g.lineWidth = limb; g.stroke();
+    });
+    if (hp) {
+      g.beginPath();
+      g.arc(hp[0], hp[1], Math.max(2, V.fx * rig.headR / hp[2]), 0, 6.2832);
+      g.fillStyle = ink3; g.fill();
+    }
+    g.globalAlpha = 1;
+  }
 
   /* home plate, the rubber, then the rulebook zone with its thirds */
   poly(PLATE_XY.map(q => [q[0], q[1], 0]), line, 3);
