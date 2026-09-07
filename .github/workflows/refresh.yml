@@ -14,12 +14,12 @@ on:
         description: "How many starters to pull (by games started)"
         default: "60"
       season:
-        description: "Season"
-        default: "2026"
+        description: "Season (blank = the season currently in progress)"
+        default: ""
 
 # Required for actions/deploy-pages
 permissions:
-  contents: read
+  contents: write      # keepalive commit (see "Keep the schedule alive")
   pages: write
   id-token: write
 
@@ -41,11 +41,14 @@ jobs:
 
       - name: Build cards from Savant + StatsAPI
         env:
-          SEASON: ${{ github.event.inputs.season || '2026' }}
-          LIMIT:  ${{ github.event.inputs.limit  || '60' }}
+          SEASON: ${{ github.event.inputs.season }}
+          LIMIT:  ${{ github.event.inputs.limit || '60' }}
         run: |
-          python3 build_cards.py \
-            --season "$SEASON" --limit "$LIMIT" \
+          # No --season means build_cards.py picks the season in progress,
+          # so this keeps working after the calendar rolls over.
+          ARGS=""
+          [ -n "$SEASON" ] && ARGS="--season $SEASON"
+          python3 build_cards.py $ARGS --limit "$LIMIT" \
             --probable-days 2 --workers 4 --out cards.json
 
       - name: Sanity-check the payload
@@ -74,6 +77,29 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+      # GitHub disables scheduled workflows after 60 days with no repo
+      # activity, which would silently stop the daily refresh. Committing a
+      # build stamp every ~2 weeks resets that clock without spamming history.
+      - name: Keep the schedule alive
+        if: github.event_name == 'schedule'
+        continue-on-error: true    # never let a keepalive failure block the deploy
+        run: |
+          STAMP=.github/last-build
+          NOW=$(date -u +%s)
+          PREV=0
+          [ -f "$STAMP" ] && PREV=$(grep -o '^[0-9]*' "$STAMP" 2>/dev/null || echo 0)
+          AGE=$(( (NOW - PREV) / 86400 ))
+          if [ "$AGE" -lt 14 ]; then
+            echo "stamp is ${AGE}d old — no commit needed"
+            exit 0
+          fi
+          echo "$NOW $(date -u '+%Y-%m-%d %H:%M UTC')" > "$STAMP"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$STAMP"
+          git commit -m "chore: keepalive stamp [skip ci]"
+          git push
 
   deploy:
     needs: build

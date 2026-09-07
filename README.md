@@ -34,7 +34,12 @@ pitcher's location table into a compact string (6 characters per pitch, so ~85
 pitchers fit in about 1.5 MB). `bake.py` inlines that payload into the page.
 
 A GitHub Actions workflow runs the whole thing daily at 12:43 UTC and deploys
-to Pages, so the published card is current without anyone's laptop being on.
+to Pages, so the published card is current without anyone's laptop being on —
+the build runs on GitHub's servers and the site is served from their CDN.
+
+The header shows how old the data is. If a build fails, Pages keeps serving the
+last good deploy, so the card says so plainly rather than passing stale numbers
+off as current.
 
 ## Running it locally
 

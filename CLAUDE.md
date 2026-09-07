@@ -43,7 +43,21 @@ a failed fetch keeps the last good card. It resolves its own directory, so it
 works from any clone. Logs to `refresh.log`.
 
 CI (`.github/workflows/refresh.yml`) runs the same build daily at 12:43 UTC and
-deploys to Pages. Use the Actions tab → "Run workflow" to rebuild on demand.
+deploys to Pages, so the public site updates with no device involved. Use the
+Actions tab → "Run workflow" to rebuild on demand.
+
+Three things exist purely to keep that true unattended:
+
+- **Season is derived, never hardcoded.** `default_season()` returns the
+  current year from April onward and the previous year before that, so nothing
+  breaks at the calendar rollover. Don't reintroduce a literal year.
+- **A keepalive commit** writes `.github/last-build` when the stamp is over 14
+  days old. GitHub disables scheduled workflows after 60 days of repo
+  inactivity, which would silently stop the refresh. It is
+  `continue-on-error` — it must never block a deploy.
+- **A freshness chip** in the header reads the payload's build date and turns
+  amber past 2 days, red past 6. Pages keeps serving the last good deploy when
+  a build fails, so without this a stale card looks identical to a fresh one.
 
 ## Data sources
 

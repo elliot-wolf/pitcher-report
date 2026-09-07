@@ -327,10 +327,21 @@ def baseline_grid(pool):
         out[key] = {"whiff": wg, "barrel": bg, "n": len(pts)}
     return out
 
+def default_season():
+    """The season whose data is worth pulling right now.
+
+    MLB plays late March through October. Before April we fall back to the
+    previous season, because the current one has no meaningful sample yet
+    (and the build's sanity gate would reject it)."""
+    import datetime as _dt
+    t = _dt.date.today()
+    return t.year if t.month >= 4 else t.year - 1
+
 # ── main ────────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--season", type=int, default=2026)
+    ap.add_argument("--season", type=int, default=default_season(),
+                    help="defaults to the season currently in progress")
     ap.add_argument("--limit", type=int, default=60)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out", default="cards.json")

@@ -16,6 +16,7 @@
   --s0:#cde2fb;--s1:#b7d3f6;--s2:#9ec5f4;--s3:#86b6ef;--s4:#6da7ec;--s5:#5598e7;
   --s6:#3987e5;--s7:#2a78d6;--s8:#256abf;--s9:#1c5cab;--s10:#184f95;--s11:#104281;--s12:#0d366b;
   --div-mid:#eceae4; --div-cold:#184f95; --div-hot:#b5261f;
+  --good:#0ca30c; --warning:#b07600; --critical:#d03b3b;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -27,6 +28,7 @@
     --p1:#3987e5; --p2:#d95926; --p3:#199e70; --p4:#c98500;
     --p5:#d55181; --p6:#008300; --p7:#9085e9; --p8:#e66767;
     --div-mid:#2a2f34; --div-cold:#5598e7; --div-hot:#e05a4e;
+    --good:#3cc23c; --warning:#fab219; --critical:#e66767;
   }
 }
 :root[data-theme="dark"] {
@@ -38,6 +40,7 @@
   --p1:#3987e5; --p2:#d95926; --p3:#199e70; --p4:#c98500;
   --p5:#d55181; --p6:#008300; --p7:#9085e9; --p8:#e66767;
   --div-mid:#2a2f34; --div-cold:#5598e7; --div-hot:#e05a4e;
+  --good:#3cc23c; --warning:#fab219; --critical:#e66767;
 }
 
 * { box-sizing: border-box; }
@@ -97,6 +100,11 @@ h1 { margin:0; font-family:"Barlow Condensed", sans-serif; font-weight:700;
 .bio { display:flex; flex-wrap:wrap; gap:5px 13px; margin-top:8px; font-size:12px; color:var(--ink-2); }
 .bio b { color:var(--ink); font-weight:600; letter-spacing:0.03em; }
 .matchup { text-align:right; font-size:11.5px; color:var(--ink-2); line-height:1.65; }
+.freshness { display:inline-flex; align-items:center; gap:6px; margin-top:3px;
+  font-size:11px; letter-spacing:0.03em; }
+.freshness .dot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; background:var(--fresh-c); }
+.freshness .txt { color:var(--ink-2); }
+.freshness.warn .txt, .freshness.bad .txt { color:var(--fresh-c); font-weight:600; }
 .matchup .big { display:block; font-family:"Barlow Condensed",sans-serif; font-weight:700;
   font-size:21px; letter-spacing:0.05em; text-transform:uppercase; color:var(--ink); }
 
@@ -388,6 +396,22 @@ function readLine(a, p) {
   return s.charAt(0).toUpperCase() + s.slice(1) + ".";
 }
 
+/* How old is the baked payload? The page is served from a CDN, so a broken
+   build keeps serving the last good deploy — say so plainly rather than
+   letting a stale date sit there unread. */
+function freshnessChip() {
+  const built = new Date(DATA.built + "T12:00:00Z");
+  const days = Math.floor((Date.now() - built.getTime()) / 86400000);
+  let cls = "", color = "var(--good)", txt;
+  if (days <= 0)      txt = "Updated today";
+  else if (days === 1) txt = "Updated yesterday";
+  else if (days <= 2)  txt = `Updated ${days} days ago`;
+  else if (days <= 6) { cls = "warn"; color = "var(--warning)"; txt = `${days} days old — refresh may have failed`; }
+  else                { cls = "bad";  color = "var(--critical)"; txt = `${days} days stale — data is not current`; }
+  return `<span class="freshness ${cls}" style="--fresh-c:${color}" title="Statcast through ${DATA.built}">`
+       + `<span class="dot"></span><span class="txt">${txt}</span></span>`;
+}
+
 /* ── arsenal table ─────────────────────────────────────────────────────── */
 function renderArsenal() {
   const p = state.p, maxUse = d3.max(p.arsenal, d => d.usage);
@@ -605,7 +629,7 @@ function renderHeader() {
   ].filter(Boolean).join(" <span style='opacity:.4'>·</span> ");
   document.getElementById("p-team").innerHTML =
     `<span class="big">${p.team}</span><span class="num">${DATA.season} · ${p.season.GS} GS · ${p.n.toLocaleString()} pitches</span>`
-    + `<br><span>Statcast through <span class="num">${DATA.built}</span></span>`;
+    + `<br>${freshnessChip()}`;
 
   const S = p.season;
   const cells = [["IP",S.IP],["ERA",S.ERA],["WHIP",S.WHIP],["K%",S["K%"]],
