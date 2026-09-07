@@ -402,7 +402,7 @@ button.pchip:focus-visible { outline:2px solid var(--accent); outline-offset:2px
           <button class="seg" data-speed="0.1"  aria-pressed="false">&#8539;&times;</button>
           <span class="lbl" style="margin-left:8px">View</span>
           <button class="seg" data-cam="catcher" aria-pressed="true">Behind plate</button>
-          <button class="seg" data-cam="oblique" aria-pressed="false">Third-base side</button>
+          <button class="seg" data-cam="oblique" aria-pressed="false">Side on</button>
         </div>
       </div>
 
@@ -865,8 +865,17 @@ const FL = { type: null, path: null, speed: 0.25, cam: "catcher",
    useless diagram. Both cameras sit behind the plate and elevated so the flight
    path actually reads. */
 const CAMS = {
-  catcher: { eye:[0, -9, 6.5],  at:[0, 14, 2.9], tag:"Behind the plate" },
-  oblique: { eye:[-11, -6, 8],  at:[0, 20, 3.2], tag:"Third-base side" }
+  catcher: { eye:[0, -9, 6.5],   at:[0, 14, 2.9], tag:"Behind the plate" },
+  // True side-on, perpendicular to the flight. From behind the plate a two-foot
+  // difference in release distance is ~3% of a 62 ft depth and invisible; from
+  // the side it maps straight to horizontal position, so extension reads. Mound
+  // left, plate right, so the pitch travels the way you read.
+  // Camera pushed far back so this is effectively a parallel projection. At 32 ft
+  // out, a pitcher's arm-side release position changed his depth enough to shift
+  // screen-x more than extension did: Valdez and Lugo release the same distance
+  // from the plate and landed 48px apart. At 300 ft the x-spread is ~1% of depth,
+  // so horizontal position reads as distance-from-plate and nothing else.
+  oblique: { eye:[-300, 26, 4.6], at:[0, 26, 4.3], tag:"Side on" }
 };
 
 /* time at which the ball is at height y, on the branch travelling toward
@@ -925,7 +934,7 @@ function camSpace(b, P) {
    point so their bounding box is centred. Scaling alone leaves the flight
    hugging one corner, since the release and the plate are nowhere near
    symmetric about the view axis. */
-function fitView(camKey, pts, W, H) {
+function fitView(camKey, pts, W, H, maxStretch) {
   const b = basis(camKey);
   let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
   for (const P of pts) {
@@ -934,28 +943,61 @@ function fitView(camKey, pts, W, H) {
     if (u < u0) u0 = u; if (u > u1) u1 = u;
     if (v < v0) v0 = v; if (v > v1) v1 = v;
   }
-  if (!isFinite(u0)) return { f: 1200, cx: W/2, cy: H/2 };
+  if (!isFinite(u0)) return { fx:1200, fy:1200, cx:W/2, cy:H/2, stretch:1 };
   const du = Math.max(u1 - u0, 1e-4), dv = Math.max(v1 - v0, 1e-4);
-  const f = Math.min(W * 0.84 / du, H * 0.84 / dv);
-  return { f, cx: W/2 - f * (u0 + u1) / 2, cy: H/2 - f * (v0 + v1) / 2 };
+  const fx = Math.min(W * 0.84 / du, H * 0.84 / dv);
+  /* Side on, the flight spans ~52 ft across and under 5 ft vertically, so an
+     isotropic fit flattens it to a line. Stretch the vertical (capped, and
+     labelled on the stage) so the shape reads. */
+  let fy = fx;
+  if (maxStretch > 1) fy = Math.min(fx * maxStretch, H * 0.84 / dv);
+  return { fx, fy, cx: W/2 - fx*(u0+u1)/2, cy: H/2 - fy*(v0+v1)/2,
+           stretch: fy / fx };
 }
 function projector(camKey, V) {
   const b = basis(camKey);
   return P => {
     const c = camSpace(b, P);
-    return c ? [ V.cx + V.f*c[0]/c[2], V.cy - V.f*c[1]/c[2], c[2] ] : null;
+    return c ? [ V.cx + V.fx*c[0]/c[2], V.cy - V.fy*c[1]/c[2], c[2] ] : null;
   };
 }
 
 const PLATE_XY = [[-0.708,1.417],[0.708,1.417],[0.708,0.708],[0,0],[-0.708,0.708]];
+/* front edge of the rubber: 60.5 ft from the plate, atop a 10-inch mound */
+const RUBBER = [[-1, 60.5, 0.833], [1, 60.5, 0.833]];
 const ZONE3 = [[-0.83,Y_PLATE,3.41],[0.83,Y_PLATE,3.41],[0.83,Y_PLATE,1.59],[-0.83,Y_PLATE,1.59]];
+
+/* ONE camera for every pitcher, fitted to the union of all trajectories in
+   the build. Fitting per pitcher scaled each arm's own flight to fill the
+   frame, which cancelled out release-distance differences: Valdez (5.6 ft
+   extension) and Gilbert (7.6 ft) projected their release points within one
+   pixel of each other despite releasing two feet apart. A shared frame keeps
+   the geometry honest and comparable between pitchers. */
+let SHARED_VIEW = null;
+function sharedView(W, H) {
+  if (SHARED_VIEW) return SHARED_VIEW;
+  const pts = [];
+  for (const p of DATA.pitchers) {
+    const fl = p.flight || {};
+    for (const id in fl) {
+      const pa = buildPath(fl[id]);
+      if (!pa) continue;
+      for (let i = 0; i < pa.pts.length; i += 65) pts.push(pa.pts[i]);
+      pts.push(pa.pts[pa.pts.length - 1]);
+    }
+  }
+  pts.push(...ZONE3, ...RUBBER);
+  SHARED_VIEW = { catcher: fitView("catcher", pts, W, H, 1),
+                  oblique: fitView("oblique", pts, W, H, 4) };
+  return SHARED_VIEW;
+}
 
 function drawFlight() {
   const cv = document.getElementById("flight-canvas");
   if (!cv || !FL.path) return;
   const W = cv.width, H = cv.height, g = cv.getContext("2d");
-  const V = (FL.view && FL.view[FL.cam]) || { f:1200, cx:W/2, cy:H/2 };
-  const f = V.f;
+  const V = sharedView(W, H)[FL.cam];
+  const f = V.fx;
   const pr = projector(FL.cam, V);
   g.clearRect(0, 0, W, H);
 
@@ -968,8 +1010,9 @@ function drawFlight() {
     g.setLineDash([]);
   };
 
-  /* home plate, then the rulebook zone with its thirds */
+  /* home plate, the rubber, then the rulebook zone with its thirds */
   poly(PLATE_XY.map(q => [q[0], q[1], 0]), line, 3);
+  poly(RUBBER, ink3, 3);
   for (let i = 1; i < 3; i++) {
     const zx = -0.83 + (1.66/3)*i, zz = 1.59 + (1.82/3)*i;
     poly([[zx,Y_PLATE,3.41],[zx,Y_PLATE,1.59]], ink3, 1.5, [6,7]);
@@ -986,7 +1029,7 @@ function drawFlight() {
     const k = i / upto;
     g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]);
     g.strokeStyle = FL.color; g.globalAlpha = 0.12 + 0.5 * k;
-    g.lineWidth = Math.max(1.5, f * BALL_R / B[2] * 0.5);
+    g.lineWidth = Math.max(2.4, f * BALL_R / B[2] * 0.5);
     g.lineCap = "round"; g.stroke();
   }
   g.globalAlpha = 1;
@@ -1003,7 +1046,9 @@ function drawFlight() {
   /* the ball, sized by true perspective */
   const B = pr(path[upto]);
   if (B) {
-    const r = Math.max(2.5, f * BALL_R / B[2]);
+    /* floor keeps the ball a visible marker in the parallel side view,
+       where true scale puts it under 3px */
+    const r = Math.max(4, f * BALL_R / B[2]);
     g.beginPath(); g.arc(B[0], B[1], r, 0, 6.2832);
     g.fillStyle = FL.color; g.fill();
     g.lineWidth = Math.max(1, r * 0.16); g.strokeStyle = css("--surface"); g.stroke();
@@ -1047,7 +1092,8 @@ function selectPitch(id) {
   const rows = [
     ["Velocity",      `${f1(a.velo)} mph`],
     ["Flight time",   `${FL.path.flight.toFixed(3)} s`],
-    ["Released",      `${(60.5 - T[8]).toFixed(1)} ft out`],
+    ["Extension",     `${T[8].toFixed(2)} ft`],
+    ["Release point", `${(60.5 - T[8]).toFixed(1)} ft from plate`],
     ["Total drop",    `${FL.path.drop.toFixed(1)}&Prime;`],
     ["Induced break", `${FL.path.induced > 0 ? "+" : ""}${FL.path.induced.toFixed(1)}&Prime;`],
     ["Horizontal",    `${a.hb > 0 ? "+" : ""}${f1(a.hb)}&Prime;`],
@@ -1076,18 +1122,7 @@ function renderFlight() {
     .html(d => `<i style="background:var(${SLOTS[p.arsenal.indexOf(d) % 8]})"></i>${d.name}`)
     .on("click", (ev, d) => { selectPitch(d.id); playFlight(); });
 
-  if (!avail.length) { FL.path = null; FL.view = null; return; }
-
-  const cv = document.getElementById("flight-canvas");
-  const all = [];
-  avail.forEach(a => { const pa = buildPath(fl[a.id]); if (pa) all.push(...pa.pts); });
-  // Fit to the trajectories and the zone only. Home plate sits ~3 ft below the
-  // camera at close range, so including it dominates the fit and shrinks the
-  // zone; it's context, and clipping at the bottom edge reads naturally.
-  all.push(...ZONE3);
-  FL.view = { catcher: fitView("catcher", all, cv.width, cv.height),
-              oblique: fitView("oblique", all, cv.width, cv.height) };
-
+  if (!avail.length) { FL.path = null; return; }
   selectPitch(avail.some(a => a.id === FL.type) ? FL.type : avail[0].id);
 }
 
@@ -1104,7 +1139,10 @@ document.querySelectorAll("button.seg[data-cam]").forEach(b =>
     document.querySelectorAll("button.seg[data-cam]").forEach(o =>
       o.setAttribute("aria-pressed", String(o === b)));
     FL.cam = b.dataset.cam;
-    document.getElementById("stage-tag").textContent = CAMS[FL.cam].tag;
+    const cvv = document.getElementById("flight-canvas");
+    const st = sharedView(cvv.width, cvv.height)[FL.cam].stretch;
+    document.getElementById("stage-tag").textContent =
+      CAMS[FL.cam].tag + (st > 1.05 ? ` \u00b7 vertical \u00d7${st.toFixed(1)}` : "");
     drawFlight();
   }));
 

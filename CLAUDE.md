@@ -89,7 +89,22 @@ Things worth knowing before you touch the camera code:
   clipping it at the bottom edge reads naturally.
 - Release time is negative. Parameters are stated at y = 50, but release is at
   y = 60.5 − extension ≈ 54 ft, which is *behind* the reference point. Same
-  quadratic root, no special case.
+  quadratic root, no special case. `60.5 − extension` matches Savant's own
+  `release_pos_y` column exactly (median difference 0.0000 ft over 1,134
+  pitches), so extension is honoured per pitcher.
+- **The camera fit must be SHARED across pitchers, not per pitcher.** Fitting
+  each arm's own trajectories to fill the frame cancelled out release-distance
+  differences: Valdez (5.6 ft extension) and Gilbert (7.6 ft) projected their
+  release points within one pixel of each other despite releasing two feet
+  apart. `sharedView()` fits once over every trajectory in the build.
+- Extension is nearly invisible from behind the plate — two feet out of a 62 ft
+  depth is a 3% change in apparent ball size. The side-on camera is what makes
+  it readable, and it sits 300 ft out so it is effectively a parallel
+  projection: at 32 ft, a pitcher's arm-side release position shifted screen-x
+  more than his extension did. Reading release distance back out of pixel
+  position now recovers the true value to within 0.21 ft.
+- The side view stretches vertically (capped ×4, stated on the stage label)
+  because the flight spans ~52 ft across and under 5 ft vertically.
 
 ### Hook for the planned at-bat mode
 
