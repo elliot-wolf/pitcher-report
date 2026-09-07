@@ -59,6 +59,47 @@ Three things exist purely to keep that true unattended:
   amber past 2 days, red past 6. Pages keeps serving the last good deploy when
   a build fails, so without this a stale card looks identical to a fresh one.
 
+## The Flight tab
+
+Replays the real tracked trajectory of a representative pitch. Statcast
+publishes a 9-parameter constant-acceleration model per pitch, stated at
+y = 50 ft, so position is closed-form — `p(t) = p0 + v0·t + ½a·t²`. This is the
+actual flight of an actual pitch, not a reconstruction. 99.9% of pitches carry
+all nine parameters.
+
+`build_cards.py` stores one representative pitch per type in
+`pitcher.flight[type]` as `[relX, relZ, vx0, vy0, vz0, ax, ay, az, ext,
+plateX, plateZ]` (~41 KB for all 86 pitchers). It picks the *actual pitch*
+whose shape sits closest to the type's median, because taking the median of
+each parameter independently can describe a trajectory nobody threw.
+
+Things worth knowing before you touch the camera code:
+
+- **True catcher eye height does not work.** At ~3 ft behind the plate the
+  release point projects *below* the top of the strike zone — 53 ft of flight
+  collapses into a couple of degrees. That is honestly what a hitter sees and
+  is exactly why hitting is hard, but it is a useless diagram. Both cameras sit
+  behind the plate and elevated.
+- **Focal length is fitted, not hand-tuned**, and the principal point is
+  shifted so the bounding box centres. Hand-picked values put the oblique
+  view's strike zone 600 px off a 1280 px canvas. `fitView()` handles any
+  pitcher and any pitch type.
+- The fit deliberately **excludes home plate**. It sits ~3 ft below the camera
+  at close range, so including it dominates the fit and shrinks the zone;
+  clipping it at the bottom edge reads naturally.
+- Release time is negative. Parameters are stated at y = 50, but release is at
+  y = 60.5 − extension ≈ 54 ft, which is *behind* the reference point. Same
+  quadratic root, no special case.
+
+### Hook for the planned at-bat mode
+
+The intent is a "next pitch" button that sequences a realistic at-bat. The data
+for that is **already in the payload** — `pitcher.usage[hand][countState]`
+carries his real pitch mix for `first / ahead / even / behind / twok`. A
+sequencer only needs to track the count and draw from those weights; no new
+build step. Keep `selectPitch(id)` and `playFlight()` separable so a sequencer
+can drive them.
+
 ## Data sources
 
 Both are free and need no auth or API key.

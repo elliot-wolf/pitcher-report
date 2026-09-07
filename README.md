@@ -17,6 +17,10 @@ Search any of ~85 starters. For each one:
   pitches, and how much of his season comes from the stretch.
 - **Plan of attack** — location density for fastballs, breaking balls and
   offspeed, plus Whiff+ and Damage+ heat maps, all filterable by count state.
+- **Flight** — a second tab that replays the real tracked trajectory of each
+  pitch from behind the plate, in slow motion, with the strike zone for scale.
+  It uses the nine-parameter trajectory model Statcast publishes per pitch, so
+  the path on screen is the path the ball actually took.
 
 The roster is the 60 starters with the most starts, plus every announced
 probable starter for the next two days — so whoever is going tonight is in

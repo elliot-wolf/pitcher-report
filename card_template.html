@@ -198,6 +198,49 @@ button.seg:focus-visible, #q:focus-visible { outline:2px solid var(--accent); ou
 .colophon a:hover { color:var(--ink); }
 .colophon strong { color:var(--ink-2); font-weight:600; }
 
+
+/* ── tabs ───────────────────────────────────────────────────────────────── */
+.tabs { display:flex; gap:2px; border-bottom:2px solid var(--band); margin-top:-4px; }
+button.tab {
+  font:inherit; font-family:"Barlow Condensed",sans-serif; font-size:15px; font-weight:700;
+  letter-spacing:0.09em; text-transform:uppercase; padding:8px 18px 7px;
+  background:transparent; color:var(--ink-3); border:0; border-bottom:3px solid transparent;
+  margin-bottom:-2px; cursor:pointer; transition:color .12s;
+}
+button.tab:hover { color:var(--ink-2); }
+button.tab[aria-selected="true"] { color:var(--ink); border-bottom-color:var(--accent); }
+button.tab:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+
+/* ── flight ─────────────────────────────────────────────────────────────── */
+.flight-wrap { display:grid; grid-template-columns:minmax(0,1fr) 250px; gap:18px; align-items:start; }
+.stage { position:relative; background:var(--surface-sunk); border:1px solid var(--line); }
+.stage canvas { display:block; width:100%; height:auto; }
+.stage-tag {
+  position:absolute; top:8px; left:10px; font-family:"Barlow Condensed",sans-serif;
+  font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3);
+}
+.pitch-picker { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:11px; }
+button.pchip {
+  font:inherit; font-size:12px; font-weight:600; letter-spacing:0.03em;
+  display:inline-flex; align-items:center; gap:7px; padding:6px 12px; cursor:pointer;
+  background:var(--surface); color:var(--ink-2); border:1px solid var(--line-strong);
+  transition:background .12s,color .12s;
+}
+button.pchip i { width:9px; height:9px; border-radius:2px; flex:0 0 auto; }
+button.pchip:hover { background:var(--surface-sunk); color:var(--ink); }
+button.pchip[aria-pressed="true"] { background:var(--band); color:var(--band-ink); border-color:var(--band); }
+button.pchip:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.flight-readout { border:1px solid var(--line); background:var(--surface); }
+.flight-readout dl { margin:0; display:grid; grid-template-columns:1fr auto; gap:0; }
+.flight-readout dt, .flight-readout dd {
+  margin:0; padding:7px 11px; border-bottom:1px solid var(--line); font-size:11.5px;
+}
+.flight-readout dt { color:var(--ink-3); letter-spacing:0.05em; text-transform:uppercase; font-size:9.5px; font-weight:600; align-self:center; }
+.flight-readout dd { text-align:right; font-size:14px; font-weight:500; }
+.flight-readout dl > :nth-last-child(-n+2) { border-bottom:0; }
+.flight-note { font-size:11.5px; color:var(--ink-2); line-height:1.45; margin:11px 0 0; }
+@media (max-width:820px) { .flight-wrap { grid-template-columns:minmax(0,1fr); } }
+
 #tip { position:fixed; pointer-events:none; opacity:0; background:var(--band); color:var(--band-ink);
   padding:6px 9px; font-size:11.5px; line-height:1.35; border-radius:3px; z-index:50; max-width:230px; transition:opacity .1s; }
 
@@ -230,6 +273,13 @@ button.seg:focus-visible, #q:focus-visible { outline:2px solid var(--accent); ou
     </div>
     <div class="matchup" id="p-team"></div>
   </header>
+
+  <div class="tabs" role="tablist" aria-label="Card view">
+    <button class="tab" role="tab" data-tab="report" aria-selected="true"  aria-controls="panel-report">Report</button>
+    <button class="tab" role="tab" data-tab="flight" aria-selected="false" aria-controls="panel-flight">Flight</button>
+  </div>
+
+  <div id="panel-report" role="tabpanel">
 
   <section>
     <div class="band"><h2>Season Line</h2><span class="band-note" id="season-note"></span></div>
@@ -329,6 +379,39 @@ button.seg:focus-visible, #q:focus-visible { outline:2px solid var(--accent); ou
       <a href="https://github.com/elliot-wolf/pitcher-report">source on GitHub</a></span>
     </p>
   </section>
+  </div><!-- /panel-report -->
+
+  <div id="panel-flight" role="tabpanel" hidden>
+    <div class="band"><h2>Pitch Flight</h2>
+      <span class="band-note">real tracked trajectory &middot; representative pitch of each type</span></div>
+
+    <div class="pitch-picker" id="pitch-picker" role="group" aria-label="Pitch type"></div>
+
+    <div class="flight-wrap">
+      <div>
+        <div class="stage">
+          <span class="stage-tag" id="stage-tag">Behind the plate</span>
+          <canvas id="flight-canvas" width="1280" height="1000"
+                  role="img" aria-label="Animated pitch trajectory seen from behind home plate"></canvas>
+        </div>
+        <div class="controls" style="margin:11px 0 0">
+          <button class="seg" id="btn-play">&#9654;&nbsp; Replay</button>
+          <span class="lbl" style="margin-left:8px">Speed</span>
+          <button class="seg" data-speed="1"    aria-pressed="false">Real time</button>
+          <button class="seg" data-speed="0.25" aria-pressed="true">&frac14;&times;</button>
+          <button class="seg" data-speed="0.1"  aria-pressed="false">&#8539;&times;</button>
+          <span class="lbl" style="margin-left:8px">View</span>
+          <button class="seg" data-cam="catcher" aria-pressed="true">Behind plate</button>
+          <button class="seg" data-cam="oblique" aria-pressed="false">Third-base side</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="flight-readout"><dl id="flight-readout"></dl></div>
+        <p class="flight-note" id="flight-note"></p>
+      </div>
+    </div>
+  </div><!-- /panel-flight -->
 </div>
 
 <div id="tip" role="status" aria-live="polite"></div>
@@ -681,6 +764,7 @@ function renderAll() {
   renderHeader(); renderArsenal();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   renderMaps(); paintRamps();
+  if (!document.getElementById("panel-flight").hidden) renderFlight();
 }
 
 function select(p) {
@@ -756,6 +840,285 @@ document.querySelectorAll("button.seg").forEach(btn => {
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
 new MutationObserver(renderAll).observe(document.documentElement,
   { attributes:true, attributeFilter:["data-theme"] });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FLIGHT TAB — replays the real tracked trajectory of a representative pitch.
+
+   Statcast publishes a 9-parameter constant-acceleration model per pitch,
+   stated at y = 50 ft. Position is closed-form:
+       p(t) = p0 + v0·t + ½·a·t²
+   so this is the actual flight of an actual pitch, not a reconstruction.
+   The parameters live in `pitcher.flight[pitchType]` as
+   [relX, relZ, vx0, vy0, vz0, ax, ay, az, ext, plateX, plateZ].
+
+   Coordinates: origin at the back tip of home plate, +y toward the mound,
+   +z up, +x to the catcher's right (matching plate_x in the heat maps).
+   ══════════════════════════════════════════════════════════════════════════ */
+const Y_PLATE = 17 / 12, Y_REF = 50, G = -32.174, BALL_R = 0.121;
+
+const FL = { type: null, path: null, speed: 0.25, cam: "catcher",
+             raf: null, start: 0, playing: false, progress: 1 };
+
+/* At true catcher eye height the release point projects BELOW the top of the
+   strike zone — 53 ft of flight collapses into a couple of degrees. That is
+   honestly what a hitter sees, and exactly why hitting is hard, but it makes a
+   useless diagram. Both cameras sit behind the plate and elevated so the flight
+   path actually reads. */
+const CAMS = {
+  catcher: { eye:[0, -9, 6.5],  at:[0, 14, 2.9], tag:"Behind the plate" },
+  oblique: { eye:[-11, -6, 8],  at:[0, 20, 3.2], tag:"Third-base side" }
+};
+
+/* time at which the ball is at height y, on the branch travelling toward
+   the plate. Release is at y ≈ 60.5 − extension, which is BEHIND the y=50
+   reference point, so its t is negative — same root, no special case. */
+function solveT(T, yTarget) {
+  const vy0 = T[3], ay = T[6];
+  const disc = vy0 * vy0 - 2 * ay * (Y_REF - yTarget);
+  if (disc < 0) return null;
+  return (-vy0 - Math.sqrt(disc)) / ay;
+}
+function posAt(T, t) {
+  return [ T[0] + T[2]*t + 0.5*T[5]*t*t,
+           Y_REF + T[3]*t + 0.5*T[6]*t*t,
+           T[1] + T[4]*t + 0.5*T[7]*t*t ];
+}
+
+function buildPath(T) {
+  const tRel = solveT(T, Math.min(60.5 - T[8], Y_REF + 6));
+  const tEnd = solveT(T, Y_PLATE);
+  if (tRel === null || tEnd === null || !(tEnd > tRel)) return null;
+  const N = 260, pts = [];
+  for (let i = 0; i <= N; i++) pts.push(posAt(T, tRel + (tEnd - tRel) * (i / N)));
+  const rel = pts[0], end = pts[N];
+  /* where the same pitch would cross the plate with gravity only (no spin) */
+  const zSpinless = T[1] + T[4]*tEnd + 0.5*G*tEnd*tEnd;
+  return {
+    pts, flight: tEnd - tRel, relY: rel[1],
+    drop: (end[2] - rel[2]) * 12,
+    induced: (end[2] - zSpinless) * 12,
+    plate: [T[9], T[10]]
+  };
+}
+
+/* look-at pinhole projection — one code path for both cameras.
+   Focal length is fitted per pitcher so every trajectory and the zone stay in
+   frame, rather than hand-tuned per camera (which put the oblique view's
+   strike zone 600px off-canvas). */
+function basis(camKey) {
+  const C = CAMS[camKey], e = C.eye, a = C.at;
+  let fw = [a[0]-e[0], a[1]-e[1], a[2]-e[2]];
+  const fl = Math.hypot(fw[0],fw[1],fw[2]); fw = fw.map(v => v/fl);
+  let rt = [fw[1], -fw[0], 0];                       // forward × world-up
+  const rl = Math.hypot(rt[0],rt[1],rt[2]) || 1; rt = rt.map(v => v/rl);
+  const up = [ rt[1]*fw[2]-rt[2]*fw[1], rt[2]*fw[0]-rt[0]*fw[2], rt[0]*fw[1]-rt[1]*fw[0] ];
+  return { e, fw, rt, up };
+}
+function camSpace(b, P) {
+  const d = [P[0]-b.e[0], P[1]-b.e[1], P[2]-b.e[2]];
+  const depth = d[0]*b.fw[0] + d[1]*b.fw[1] + d[2]*b.fw[2];
+  if (depth <= 0.05) return null;
+  return [ d[0]*b.rt[0] + d[1]*b.rt[1] + d[2]*b.rt[2],
+           d[0]*b.up[0] + d[1]*b.up[1] + d[2]*b.up[2], depth ];
+}
+/* Fit AND centre: scale so `pts` fill the canvas, then shift the principal
+   point so their bounding box is centred. Scaling alone leaves the flight
+   hugging one corner, since the release and the plate are nowhere near
+   symmetric about the view axis. */
+function fitView(camKey, pts, W, H) {
+  const b = basis(camKey);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const P of pts) {
+    const c = camSpace(b, P); if (!c) continue;
+    const u = c[0] / c[2], v = -c[1] / c[2];
+    if (u < u0) u0 = u; if (u > u1) u1 = u;
+    if (v < v0) v0 = v; if (v > v1) v1 = v;
+  }
+  if (!isFinite(u0)) return { f: 1200, cx: W/2, cy: H/2 };
+  const du = Math.max(u1 - u0, 1e-4), dv = Math.max(v1 - v0, 1e-4);
+  const f = Math.min(W * 0.84 / du, H * 0.84 / dv);
+  return { f, cx: W/2 - f * (u0 + u1) / 2, cy: H/2 - f * (v0 + v1) / 2 };
+}
+function projector(camKey, V) {
+  const b = basis(camKey);
+  return P => {
+    const c = camSpace(b, P);
+    return c ? [ V.cx + V.f*c[0]/c[2], V.cy - V.f*c[1]/c[2], c[2] ] : null;
+  };
+}
+
+const PLATE_XY = [[-0.708,1.417],[0.708,1.417],[0.708,0.708],[0,0],[-0.708,0.708]];
+const ZONE3 = [[-0.83,Y_PLATE,3.41],[0.83,Y_PLATE,3.41],[0.83,Y_PLATE,1.59],[-0.83,Y_PLATE,1.59]];
+
+function drawFlight() {
+  const cv = document.getElementById("flight-canvas");
+  if (!cv || !FL.path) return;
+  const W = cv.width, H = cv.height, g = cv.getContext("2d");
+  const V = (FL.view && FL.view[FL.cam]) || { f:1200, cx:W/2, cy:H/2 };
+  const f = V.f;
+  const pr = projector(FL.cam, V);
+  g.clearRect(0, 0, W, H);
+
+  const ink = css("--ink"), ink3 = css("--ink-3"), line = css("--line-strong");
+  const poly = (pts3, stroke, w, dash) => {
+    const p = pts3.map(pr); if (p.some(q => !q)) return;
+    g.beginPath(); p.forEach((q,i) => i ? g.lineTo(q[0],q[1]) : g.moveTo(q[0],q[1]));
+    g.closePath();
+    g.setLineDash(dash || []); g.strokeStyle = stroke; g.lineWidth = w; g.stroke();
+    g.setLineDash([]);
+  };
+
+  /* home plate, then the rulebook zone with its thirds */
+  poly(PLATE_XY.map(q => [q[0], q[1], 0]), line, 3);
+  for (let i = 1; i < 3; i++) {
+    const zx = -0.83 + (1.66/3)*i, zz = 1.59 + (1.82/3)*i;
+    poly([[zx,Y_PLATE,3.41],[zx,Y_PLATE,1.59]], ink3, 1.5, [6,7]);
+    poly([[-0.83,Y_PLATE,zz],[0.83,Y_PLATE,zz]], ink3, 1.5, [6,7]);
+  }
+  poly(ZONE3, ink, 4);
+
+  const path = FL.path.pts, upto = Math.max(1, Math.round(FL.progress * (path.length - 1)));
+
+  /* trail: a tapering line that fades toward the release point */
+  for (let i = 1; i <= upto; i++) {
+    const A = pr(path[i-1]), B = pr(path[i]);
+    if (!A || !B) continue;
+    const k = i / upto;
+    g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]);
+    g.strokeStyle = FL.color; g.globalAlpha = 0.12 + 0.5 * k;
+    g.lineWidth = Math.max(1.5, f * BALL_R / B[2] * 0.5);
+    g.lineCap = "round"; g.stroke();
+  }
+  g.globalAlpha = 1;
+
+  /* release marker */
+  const R = pr(path[0]);
+  if (R) {
+    g.strokeStyle = ink3; g.lineWidth = 2; g.globalAlpha = 0.7;
+    g.beginPath(); g.moveTo(R[0]-7,R[1]); g.lineTo(R[0]+7,R[1]);
+    g.moveTo(R[0],R[1]-7); g.lineTo(R[0],R[1]+7); g.stroke();
+    g.globalAlpha = 1;
+  }
+
+  /* the ball, sized by true perspective */
+  const B = pr(path[upto]);
+  if (B) {
+    const r = Math.max(2.5, f * BALL_R / B[2]);
+    g.beginPath(); g.arc(B[0], B[1], r, 0, 6.2832);
+    g.fillStyle = FL.color; g.fill();
+    g.lineWidth = Math.max(1, r * 0.16); g.strokeStyle = css("--surface"); g.stroke();
+  }
+}
+
+function stopFlight() {
+  if (FL.raf) cancelAnimationFrame(FL.raf);
+  FL.raf = null; FL.playing = false;
+}
+function playFlight() {
+  if (!FL.path) return;
+  stopFlight();
+  FL.playing = true; FL.start = performance.now();
+  const dur = (FL.path.flight / FL.speed) * 1000;
+  const step = now => {
+    FL.progress = Math.min(1, (now - FL.start) / dur);
+    drawFlight();
+    if (FL.progress < 1) FL.raf = requestAnimationFrame(step);
+    else { FL.raf = null; FL.playing = false; }
+  };
+  FL.raf = requestAnimationFrame(step);
+}
+
+function selectPitch(id) {
+  const p = state.p, T = (p.flight || {})[id];
+  if (!T) return;
+  const i = p.arsenal.findIndex(a => a.id === id);
+  const a = p.arsenal[i];
+  FL.type = id;
+  FL.color = css(SLOTS[i % 8]);
+  FL.path = buildPath(T);
+  FL.progress = 1;
+
+  document.querySelectorAll("#pitch-picker .pchip").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.pitch === id)));
+
+  if (!FL.path) { document.getElementById("flight-readout").innerHTML =
+      "<dt>Trajectory</dt><dd>unavailable</dd>"; return; }
+
+  const rows = [
+    ["Velocity",      `${f1(a.velo)} mph`],
+    ["Flight time",   `${FL.path.flight.toFixed(3)} s`],
+    ["Released",      `${(60.5 - T[8]).toFixed(1)} ft out`],
+    ["Total drop",    `${FL.path.drop.toFixed(1)}&Prime;`],
+    ["Induced break", `${FL.path.induced > 0 ? "+" : ""}${FL.path.induced.toFixed(1)}&Prime;`],
+    ["Horizontal",    `${a.hb > 0 ? "+" : ""}${f1(a.hb)}&Prime;`],
+    ["Approach angle",`${f1(a.vaa)}&deg;`],
+    ["Crosses at",    `${FL.path.plate[0] > 0 ? "+" : ""}${FL.path.plate[0].toFixed(2)}, ${FL.path.plate[1].toFixed(2)} ft`],
+  ];
+  document.getElementById("flight-readout").innerHTML =
+    rows.map(r => `<dt>${r[0]}</dt><dd class="num">${r[1]}</dd>`).join("");
+
+  document.getElementById("flight-note").innerHTML =
+    `It falls <strong>${Math.abs(FL.path.drop).toFixed(0)}&Prime;</strong> on the way in. `
+    + `The ${a.name.toLowerCase()} doesn&#39;t rise — spin makes it drop `
+    + `<strong>${Math.abs(FL.path.induced).toFixed(0)}&Prime; less</strong> than a ball with no spin would, `
+    + `which is what a hitter reads as ride.`;
+  drawFlight();
+}
+
+function renderFlight() {
+  const p = state.p, fl = p.flight || {};
+  const avail = p.arsenal.filter(a => fl[a.id]);
+  const pick = d3.select("#pitch-picker");
+  pick.selectAll("button").data(avail, d => d.id).join("button")
+    .attr("class", "pchip").attr("type", "button")
+    .attr("aria-pressed", "false")
+    .attr("data-pitch", d => d.id)
+    .html(d => `<i style="background:var(${SLOTS[p.arsenal.indexOf(d) % 8]})"></i>${d.name}`)
+    .on("click", (ev, d) => { selectPitch(d.id); playFlight(); });
+
+  if (!avail.length) { FL.path = null; FL.view = null; return; }
+
+  const cv = document.getElementById("flight-canvas");
+  const all = [];
+  avail.forEach(a => { const pa = buildPath(fl[a.id]); if (pa) all.push(...pa.pts); });
+  // Fit to the trajectories and the zone only. Home plate sits ~3 ft below the
+  // camera at close range, so including it dominates the fit and shrinks the
+  // zone; it's context, and clipping at the bottom edge reads naturally.
+  all.push(...ZONE3);
+  FL.view = { catcher: fitView("catcher", all, cv.width, cv.height),
+              oblique: fitView("oblique", all, cv.width, cv.height) };
+
+  selectPitch(avail.some(a => a.id === FL.type) ? FL.type : avail[0].id);
+}
+
+/* ── flight controls ───────────────────────────────────────────────────── */
+document.getElementById("btn-play").addEventListener("click", playFlight);
+document.querySelectorAll("button.seg[data-speed]").forEach(b =>
+  b.addEventListener("click", () => {
+    document.querySelectorAll("button.seg[data-speed]").forEach(o =>
+      o.setAttribute("aria-pressed", String(o === b)));
+    FL.speed = +b.dataset.speed; playFlight();
+  }));
+document.querySelectorAll("button.seg[data-cam]").forEach(b =>
+  b.addEventListener("click", () => {
+    document.querySelectorAll("button.seg[data-cam]").forEach(o =>
+      o.setAttribute("aria-pressed", String(o === b)));
+    FL.cam = b.dataset.cam;
+    document.getElementById("stage-tag").textContent = CAMS[FL.cam].tag;
+    drawFlight();
+  }));
+
+/* ── tabs ──────────────────────────────────────────────────────────────── */
+document.querySelectorAll("button.tab").forEach(btn =>
+  btn.addEventListener("click", () => {
+    const which = btn.dataset.tab;
+    document.querySelectorAll("button.tab").forEach(b =>
+      b.setAttribute("aria-selected", String(b === btn)));
+    document.getElementById("panel-report").hidden = which !== "report";
+    document.getElementById("panel-flight").hidden = which !== "flight";
+    if (which === "flight") { renderFlight(); playFlight(); }
+    else stopFlight();
+  }));
 
 /* open on the highest-usage arm in the build so the page shows work at rest */
 select(DATA.pitchers.slice().sort((a,b) => b.n - a.n)[0]);

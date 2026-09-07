@@ -231,6 +231,26 @@ def build_pitcher(meta, season):
             "xwoba": mean(xw),
         })
 
+    # A representative *real* pitch per type: the one whose shape sits closest
+    # to that type's median. Using medians of each parameter independently can
+    # describe a trajectory nobody actually threw, so pick an actual pitch.
+    TRAJ = ["release_pos_x", "release_pos_z", "vx0", "vy0", "vz0",
+            "ax", "ay", "az", "release_extension", "plate_x", "plate_z"]
+    flight = {}
+    for a in arsenal:
+        rs = [r for r in by_pt[a["id"]] if all(f(r, k) is not None for k in TRAJ)]
+        if len(rs) < 5: continue
+        import statistics as _st
+        mv = _st.median([f(r, "release_speed") for r in rs if f(r, "release_speed")])
+        mx = _st.median([f(r, "pfx_x") for r in rs])
+        mz = _st.median([f(r, "pfx_z") for r in rs])
+        def score(r):
+            return (((f(r, "release_speed") or mv) - mv) / 2.0) ** 2 \
+                 + ((f(r, "pfx_x") - mx) / 0.25) ** 2 \
+                 + ((f(r, "pfx_z") - mz) / 0.25) ** 2
+        best = min(rs, key=score)
+        flight[a["id"]] = [round(f(best, k), 3) for k in TRAJ]
+
     order = [a["id"] for a in arsenal]
     pt_idx = {pt: i for i, pt in enumerate(order)}
 
@@ -295,6 +315,7 @@ def build_pitcher(meta, season):
         },
         "arsenal": arsenal,
         "usage": usage,
+        "flight": flight,
         "pitches": "".join(buf),
         "n": len(buf),
     }
