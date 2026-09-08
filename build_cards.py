@@ -26,7 +26,7 @@ SAVANT = "https://baseballsavant.mlb.com"
 # ── plate geometry ──────────────────────────────────────────────────────────
 PLATE_Y = 17.0 / 12.0          # front of home plate, feet
 RELEASE_Y = 50.0               # Statcast trajectory coefficients are stated at y=50
-ZONE = dict(x0=-0.83, x1=0.83, z0=1.59, z1=3.41)
+ZONE = dict(x0=-0.83, x1=0.83, z0=1.622, z1=3.214)
 
 # ── compact wire encoding for the pitch table ───────────────────────────────
 B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -188,12 +188,16 @@ def get_statcast(pid, season):
 # ── outcome model for the at-bat simulator ─────────────────────────────────
 # Four attack zones, following Savant's heart / shadow / chase idea. Coarse
 # enough that a single pitcher has a usable sample in each cell.
+# Statcast's own sz_top/sz_bot, pooled over 35,758 pitches: median 3.214 and
+# 1.622. The commonly quoted 1.59-3.41 "rulebook" zone is 2.4 inches too tall
+# at the top, which both mis-draws the zone and biases the in-zone rate.
+SZ_TOP, SZ_BOT = 3.214, 1.622
 ZONE_BINS = ("heart", "edge", "shadow", "chase")
 def zone_bin(x, z):
     ax = abs(x)
-    if ax <= 0.558 and 1.83 <= z <= 3.17: return 0      # heart
-    if ax <= 0.83  and 1.59 <= z <= 3.41: return 1      # rest of the rulebook zone
-    if ax <= 1.108 and 1.32 <= z <= 3.68: return 2      # just off the plate
+    if ax <= 0.558 and 1.85 <= z <= 2.99: return 0      # heart
+    if ax <= 0.83  and SZ_BOT <= z <= SZ_TOP: return 1  # rest of the zone
+    if ax <= 1.108 and 1.35 <= z <= 3.48: return 2      # just off the plate
     return 3                                            # chase / waste
 
 FOUL_DESC = {"foul", "foul_bunt"}
@@ -292,10 +296,18 @@ def build_pitcher(meta, season):
         mv = _st.median([f(r, "release_speed") for r in rs if f(r, "release_speed")])
         mx = _st.median([f(r, "pfx_x") for r in rs])
         mz = _st.median([f(r, "pfx_z") for r in rs])
+        # Location has to count too. Scoring on shape alone took whatever spot
+        # that particular pitch happened to go: Bryan Woo's "representative"
+        # four-seam came out at 4.12 ft, the 94th percentile of his own
+        # four-seams, against a median of 2.95.
+        mpx = _st.median([f(r, "plate_x") for r in rs])
+        mpz = _st.median([f(r, "plate_z") for r in rs])
         def score(r):
             return (((f(r, "release_speed") or mv) - mv) / 2.0) ** 2 \
                  + ((f(r, "pfx_x") - mx) / 0.25) ** 2 \
-                 + ((f(r, "pfx_z") - mz) / 0.25) ** 2
+                 + ((f(r, "pfx_z") - mz) / 0.25) ** 2 \
+                 + ((f(r, "plate_x") - mpx) / 0.55) ** 2 \
+                 + ((f(r, "plate_z") - mpz) / 0.55) ** 2
         best = min(rs, key=score)
         flight[a["id"]] = [round(f(best, k), 3) for k in TRAJ]
 

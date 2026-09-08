@@ -492,13 +492,7 @@ button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
         </div>
         <div class="controls" style="margin:11px 0 0">
           <button class="seg" id="btn-play">&#9654;&nbsp; Replay</button>
-          <span class="lbl" style="margin-left:8px">Speed</span>
-          <button class="seg" data-speed="1"    aria-pressed="false">Real time</button>
-          <button class="seg" data-speed="0.25" aria-pressed="true">&frac14;&times;</button>
-          <button class="seg" data-speed="0.1"  aria-pressed="false">&#8539;&times;</button>
-          <span class="lbl" style="margin-left:8px">View</span>
-          <button class="seg" data-cam="catcher" aria-pressed="true">Behind plate</button>
-          <button class="seg" data-cam="oblique" aria-pressed="false">Side on</button>
+          <span class="lbl" style="margin-left:10px">Real time &middot; behind the plate</span>
         </div>
       </div>
 
@@ -897,7 +891,11 @@ function renderSequencing(hand, sel) {
 
 /* ── heat maps ─────────────────────────────────────────────────────────── */
 const MW = 210, MH = 232, MPAD = { t:8, r:8, b:8, l:8 };
-const XD = GRID.xd, ZD = GRID.zd, ZONE = { x0:-0.83, x1:0.83, z0:1.59, z1:3.41 };
+/* Statcast's own sz_bot/sz_top, pooled: median 1.622 / 3.214. The commonly
+   quoted 1.59-3.41 'rulebook' zone is 2.4 inches too tall at the top, which
+   both mis-draws the zone and biases every in-zone call. */
+const SZ = { bot: 1.622, top: 3.214 };
+const XD = GRID.xd, ZD = GRID.zd, ZONE = { x0:-0.83, x1:0.83, z0:SZ.bot, z1:SZ.top };
 const SEQ = ["--s0","--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8","--s9","--s10","--s11","--s12"];
 const seqInterp = () => d3.piecewise(d3.interpolateRgb.gamma(2.2), SEQ.map(css));
 const divInterp = () => d3.piecewise(d3.interpolateRgb.gamma(2.2),
@@ -1224,7 +1222,7 @@ new MutationObserver(renderAll).observe(document.documentElement,
    ══════════════════════════════════════════════════════════════════════════ */
 const Y_PLATE = 17 / 12, Y_REF = 50, G = -32.174, BALL_R = 0.121;
 
-const FL = { type: null, path: null, speed: 0.25, cam: "catcher",
+const FL = { type: null, path: null, speed: 1, cam: "catcher",
              raf: null, start: 0, playing: false, progress: 1 };
 
 /* At true catcher eye height the release point projects BELOW the top of the
@@ -1233,17 +1231,10 @@ const FL = { type: null, path: null, speed: 0.25, cam: "catcher",
    useless diagram. Both cameras sit behind the plate and elevated so the flight
    path actually reads. */
 const CAMS = {
-  catcher: { eye:[0, -9, 6.5],   at:[0, 14, 2.9], tag:"Behind the plate" },
-  // True side-on, perpendicular to the flight. From behind the plate a two-foot
-  // difference in release distance is ~3% of a 62 ft depth and invisible; from
-  // the side it maps straight to horizontal position, so extension reads. Mound
-  // left, plate right, so the pitch travels the way you read.
-  // Camera pushed far back so this is effectively a parallel projection. At 32 ft
-  // out, a pitcher's arm-side release position changed his depth enough to shift
-  // screen-x more than extension did: Valdez and Lugo release the same distance
-  // from the plate and landed 48px apart. At 300 ft the x-spread is ~1% of depth,
-  // so horizontal position reads as distance-from-plate and nothing else.
-  oblique: { eye:[-300, 26, 4.6], at:[0, 26, 4.3], tag:"Side on" }
+  /* Behind the plate and elevated. At true catcher eye height the release
+     point projects below the top of the zone and 53 ft of flight collapses
+     into a couple of degrees. Only camera now — real time, one view. */
+  catcher: { eye:[0, -9, 6.5], at:[0, 14, 2.9], tag:"Behind the plate" }
 };
 
 /* time at which the ball is at height y, on the branch travelling toward
@@ -1311,7 +1302,7 @@ function buildPath(T) {
 
 /* look-at pinhole projection — one code path for both cameras.
    Focal length is fitted per pitcher so every trajectory and the zone stay in
-   frame, rather than hand-tuned per camera (which put the oblique view's
+   frame, rather than hand-tuned (an earlier fixed focal length put the
    strike zone 600px off-canvas). */
 function basis(camKey) {
   const C = CAMS[camKey], e = C.eye, a = C.at;
@@ -1426,7 +1417,7 @@ function pitcherRig(p, hand) {
 const PLATE_XY = [[-0.708,1.417],[0.708,1.417],[0.708,0.708],[0,0],[-0.708,0.708]];
 /* front edge of the rubber: 60.5 ft from the plate, atop a 10-inch mound */
 const RUBBER = [[-1, 60.5, 0.833], [1, 60.5, 0.833]];
-const ZONE3 = [[-0.83,Y_PLATE,3.41],[0.83,Y_PLATE,3.41],[0.83,Y_PLATE,1.59],[-0.83,Y_PLATE,1.59]];
+const ZONE3 = [[-0.83,Y_PLATE,SZ.top],[0.83,Y_PLATE,SZ.top],[0.83,Y_PLATE,SZ.bot],[-0.83,Y_PLATE,SZ.bot]];
 
 /* ONE camera for every pitcher, fitted to the union of all trajectories in
    the build. Fitting per pitcher scaled each arm's own flight to fill the
@@ -1464,14 +1455,13 @@ function sharedView(W, H) {
      vertically x4 so the arc read as a curve, but with the mound and the
      pitcher in frame that exaggeration made a 6'6" arm look 26 ft tall —
      and stature is the point of drawing him at all. */
-  SHARED_VIEW = { catcher: fitView("catcher", pts, W, H, 1),
-                  oblique: fitView("oblique", pts, W, H, 1) };
+  SHARED_VIEW = { catcher: fitView("catcher", pts, W, H, 1) };
   return SHARED_VIEW;
 }
 
 function drawFlight() {
   const cv = document.getElementById("flight-canvas");
-  if (!cv || !FL.path) return;
+  if (!cv || !state.p) return;
   const W = cv.width, H = cv.height, g = cv.getContext("2d");
   const V = sharedView(W, H)[FL.cam];
   const f = V.fx;
@@ -1487,8 +1477,9 @@ function drawFlight() {
     g.setLineDash([]);
   };
 
-  /* mound contours and the pitcher, behind everything else */
-  if (FL.path) {
+  /* Mound and pitcher always. With no pitch chosen the hand rests on his
+     average release point, so the scene is complete but holds no pitch. */
+  {
     [MOUND_R, 6.6, 4.2, 2.5].forEach((r, i) => {
       const ring = moundRing(r).map(pr);
       if (ring.some(q => !q)) return;
@@ -1499,7 +1490,10 @@ function drawFlight() {
     });
     g.globalAlpha = 1;
 
-    const rig = pitcherRig(state.p, FL.path.pts[0]);
+    const rel = state.p.rel || {};
+    const handPt = FL.path ? FL.path.pts[0]
+      : [rel.x != null ? rel.x : 0, 60.5 - (rel.ext || 6.3), rel.z != null ? rel.z : 5.8];
+    const rig = pitcherRig(state.p, handPt);
     g.strokeStyle = ink3; g.lineCap = "round"; g.globalAlpha = 0.9;
     const hp = pr(rig.head);
     const limb = hp ? Math.max(2, (CAMS[FL.cam].tag ? 1 : 1) * V.fx * 0.055 / hp[2]) : 2.5;
@@ -1521,12 +1515,13 @@ function drawFlight() {
   poly(PLATE_XY.map(q => [q[0], q[1], 0]), line, 3);
   poly(RUBBER, ink3, 3);
   for (let i = 1; i < 3; i++) {
-    const zx = -0.83 + (1.66/3)*i, zz = 1.59 + (1.82/3)*i;
-    poly([[zx,Y_PLATE,3.41],[zx,Y_PLATE,1.59]], ink3, 1.5, [6,7]);
+    const zx = -0.83 + (1.66/3)*i, zz = SZ.bot + ((SZ.top-SZ.bot)/3)*i;
+    poly([[zx,Y_PLATE,SZ.top],[zx,Y_PLATE,SZ.bot]], ink3, 1.5, [6,7]);
     poly([[-0.83,Y_PLATE,zz],[0.83,Y_PLATE,zz]], ink3, 1.5, [6,7]);
   }
   poly(ZONE3, ink, 4);
 
+  if (!FL.path) return;                 // scene only — nothing selected yet
   const path = FL.path.pts, upto = Math.max(1, Math.round(FL.progress * (path.length - 1)));
 
   /* trail: a tapering line that fades toward the release point */
@@ -1614,6 +1609,13 @@ function selectPitch(id, override) {
   drawFlight();
 }
 
+function clearReadout() {
+  document.getElementById("flight-readout").innerHTML =
+    '<dt>Pitch</dt><dd style="font-size:12px;color:var(--ink-3)">pick one to see it</dd>';
+  document.querySelectorAll("#pitch-picker .pchip")
+    .forEach(b => b.setAttribute("aria-pressed", "false"));
+}
+
 function renderFlight() {
   const p = state.p, fl = p.flight || {};
   const avail = p.arsenal.filter(a => fl[a.id]);
@@ -1625,8 +1627,12 @@ function renderFlight() {
     .html(d => `<i style="background:var(${SLOTS[p.arsenal.indexOf(d) % 8]})"></i>${d.name}`)
     .on("click", (ev, d) => { selectPitch(d.id); playFlight(); });
 
-  if (!avail.length) { FL.path = null; return; }
-  selectPitch(avail.some(a => a.id === FL.type) ? FL.type : avail[0].id);
+  /* Deliberately no auto-selection. The stage shows the mound, the pitcher
+     and the zone; a pitch only flies once the user picks one (Explore) or
+     guesses and it is thrown (Face him). */
+  FL.path = null; FL.type = null;
+  clearReadout();
+  drawFlight();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1648,7 +1654,7 @@ function renderFlight() {
    a 100% whiff rate.
    ══════════════════════════════════════════════════════════════════════════ */
 const AB = { on:false, hand:"R", balls:0, strikes:0, pitchNo:0, log:[], pending:null,
-             guess:null, hitKind:0,
+             guess:null, hitKind:0, throwSeq:0,
              tally:{ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0,
                     ooz:0,chased:0} };
 
@@ -1656,12 +1662,12 @@ const ZONE_BIN_NAME = ["heart of the zone", "edge of the zone",
                        "just off the plate", "well off the plate"];
 function zoneBin(x, z) {
   const ax = Math.abs(x);
-  if (ax <= 0.558 && z >= 1.83 && z <= 3.17) return 0;
-  if (ax <= 0.83  && z >= 1.59 && z <= 3.41) return 1;
-  if (ax <= 1.108 && z >= 1.32 && z <= 3.68) return 2;
+  if (ax <= 0.558 && z >= 1.85 && z <= 2.99) return 0;
+  if (ax <= 0.83  && z >= SZ.bot && z <= SZ.top) return 1;
+  if (ax <= 1.108 && z >= 1.35 && z <= 3.48) return 2;
   return 3;
 }
-const inZone = (x, z) => Math.abs(x) <= 0.83 && z >= 1.59 && z <= 3.41;
+const inZone = (x, z) => Math.abs(x) <= 0.83 && z >= SZ.bot && z <= SZ.top;
 
 const countState = (b, k) => CS_KEYS[csIndex(b, k)];
 function pickWeighted(weights) {
@@ -1752,6 +1758,10 @@ function abLog(txt, res) {
 /* ── step 1: guess the pitch ───────────────────────────────────────────── */
 function abAskGuess() {
   const p = state.p, avail = p.arsenal.filter(a => (p.flight || {})[a.id]);
+  stopFlight();
+  AB.throwSeq++;                       // invalidate any in-flight timer
+  FL.path = null; FL.type = null;      // clear the last pitch before the next guess
+  drawFlight();
   abSetCount();
   $ab("ab-body").innerHTML =
     `<div class="ab-q">${AB.balls}-${AB.strikes} · what's coming?</div>`
@@ -1785,8 +1795,11 @@ function abThrow(guess) {
     playFlight();
   }
   $ab("ab-body").innerHTML = `<div class="ab-q">pitch is on the way…</div>`;
+  /* Token so a timer from a previous pitch can never paint over a newer
+     state — otherwise a fast resolve gets the swing prompt back. */
+  const seq = ++AB.throwSeq;
   const wait = Math.min(2400, (FL.path ? FL.path.flight / FL.speed : 0.4) * 1000 + 120);
-  setTimeout(abAskSwing, wait);
+  setTimeout(() => { if (seq === AB.throwSeq) abAskSwing(); }, wait);
 }
 
 /* ── step 3: swing or take ─────────────────────────────────────────────── */
@@ -1905,24 +1918,6 @@ document.querySelectorAll("button.seg[data-mode]").forEach(b =>
 
 /* ── flight controls ───────────────────────────────────────────────────── */
 document.getElementById("btn-play").addEventListener("click", playFlight);
-document.querySelectorAll("button.seg[data-speed]").forEach(b =>
-  b.addEventListener("click", () => {
-    document.querySelectorAll("button.seg[data-speed]").forEach(o =>
-      o.setAttribute("aria-pressed", String(o === b)));
-    FL.speed = +b.dataset.speed; playFlight();
-  }));
-document.querySelectorAll("button.seg[data-cam]").forEach(b =>
-  b.addEventListener("click", () => {
-    document.querySelectorAll("button.seg[data-cam]").forEach(o =>
-      o.setAttribute("aria-pressed", String(o === b)));
-    FL.cam = b.dataset.cam;
-    const cvv = document.getElementById("flight-canvas");
-    const st = sharedView(cvv.width, cvv.height)[FL.cam].stretch;
-    document.getElementById("stage-tag").textContent =
-      CAMS[FL.cam].tag + (st > 1.05 ? ` \u00b7 vertical \u00d7${st.toFixed(1)}` : "");
-    drawFlight();
-  }));
-
 /* ── tabs ──────────────────────────────────────────────────────────────── */
 document.querySelectorAll("button.tab").forEach(btn =>
   btn.addEventListener("click", () => {

@@ -133,7 +133,10 @@ Things worth knowing before you touch the camera code:
   projection: at 32 ft, a pitcher's arm-side release position shifted screen-x
   more than his extension did. Reading release distance back out of pixel
   position now recovers the true value to within 0.21 ft.
-- Both cameras are now true to proportion. The side view used to stretch
+- Flight is fixed at real time, behind the plate — one speed, one camera.
+  The stage draws the mound, the pitcher and the zone but no pitch until the
+  user picks one (Explore) or guesses and it is thrown (Face him).
+- Both cameras were true to proportion. The side view used to stretch
   vertically ×4 so the arc read as a curve, but once the mound and pitcher were
   drawn that made a 6'6" arm look 26 ft tall. `fitView`'s `maxStretch` argument
   still exists if you need it — the label states any stretch above 1.05.
@@ -265,6 +268,18 @@ than inventing it).
   render, meaning switching pitchers silently updated the name and nothing
   else. All joins use `:scope > *`. Keep it that way.
 - **macOS has no `flock`.** `refresh.sh` uses an atomic `mkdir` lock.
+- **Use the measured strike zone, not the rulebook approximation.** Statcast's
+  own `sz_top`/`sz_bot`, pooled over 35,758 pitches, median **3.214 / 1.622**.
+  The widely quoted 1.59-3.41 zone is 2.4 inches too tall at the top; it
+  mis-draws the zone and shifts the in-zone rate by about 4 points (47.0% vs
+  42.8% against each batter's real zone), which every ball/strike call in the
+  simulator inherits. One `SZ` constant in the page, `SZ_TOP`/`SZ_BOT` in the
+  build. The zone is deliberately NOT per-batter: the simulator's batter is
+  abstract, and a drawn zone that disagrees with the call reads as a bug.
+- **The representative pitch must be typical in location, not just shape.**
+  Scoring only on velocity and break picked whatever spot that pitch happened
+  to go — Bryan Woo's came out at 4.12 ft, the 94th percentile of his own
+  four-seams, against a median of 2.95. `score()` now includes plate_x/plate_z.
 - Pitchers with fewer than 300 located pitches are skipped — too thin for
   honest heat maps.
 - **The baseline pool is subsampled** (`BASE_SAMPLE`, 130k per batter hand).
