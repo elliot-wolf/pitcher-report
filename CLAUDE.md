@@ -133,9 +133,19 @@ Things worth knowing before you touch the camera code:
   projection: at 32 ft, a pitcher's arm-side release position shifted screen-x
   more than his extension did. Reading release distance back out of pixel
   position now recovers the true value to within 0.21 ft.
-- Flight is fixed at real time, behind the plate — one speed, one camera.
-  The stage draws the mound, the pitcher and the zone but no pitch until the
-  user picks one (Explore) or guesses and it is thrown (Face him).
+- The tab is **Showdown**: one mode, real time, behind the plate. There is no
+  Explore mode and no pitch picker — the stage draws the field, mound, pitcher,
+  plate and zone, and a pitch only flies once the batter has guessed.
+- **Batter handedness is chosen, not random.** It has to be: Skenes at 0-0
+  throws 30% sweepers and 27% sinkers to righties against 18% splitters and
+  14% changeups to lefties. Switching hands starts a new batter.
+- The guess bar lives under the stage, not beside it. The scene is tall and
+  narrow, so `.flight-wrap` is capped at 900px and centred; a full-width stage
+  wasted its width and pushed the guess bar off screen.
+- The faint field (foul lines, diamond, infield arc, fence) is scenery and is
+  deliberately **not** in the camera fit — its far edges run off frame the way
+  they would from the box. Home plate *is* in the fit; leaving it out clipped
+  it off the bottom.
 - Both cameras were true to proportion. The side view used to stretch
   vertically ×4 so the arc read as a curve, but once the mound and pitcher were
   drawn that made a 6'6" arm look 26 ft tall. `fitView`'s `maxStretch` argument
@@ -148,7 +158,7 @@ Things worth knowing before you touch the camera code:
   proportioned off his listed height. A 6'6" pitcher draws 6.5 ft tall. Both
   are included in the shared-view fit or they clip in the side view.
 
-### At-bat simulator ("Face him")
+### Showdown (the at-bat simulator)
 
 Every step is driven by this pitcher's real data rather than a recorded at-bat,
 so the user's swing/take decision is genuinely theirs:

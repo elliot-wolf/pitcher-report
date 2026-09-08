@@ -217,14 +217,16 @@ button.tab[aria-selected="true"] { color:var(--ink); border-bottom-color:var(--a
 button.tab:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 
 /* ── flight ─────────────────────────────────────────────────────────────── */
-.flight-wrap { display:grid; grid-template-columns:minmax(0,1fr) 250px; gap:18px; align-items:start; }
+/* The scene is tall and narrow — a full-width stage wastes most of its width
+   and pushes the guess bar off screen. Cap the whole panel and centre it. */
+.flight-wrap { display:grid; grid-template-columns:minmax(0,1fr) 236px; gap:16px;
+  align-items:start; max-width:900px; margin:0 auto; }
 .stage { position:relative; background:var(--surface-sunk); border:1px solid var(--line); }
 .stage canvas { display:block; width:100%; height:auto; }
 .stage-tag {
   position:absolute; top:8px; left:10px; font-family:"Barlow Condensed",sans-serif;
   font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3);
 }
-.pitch-picker { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:11px; }
 button.pchip {
   font:inherit; font-size:12px; font-weight:600; letter-spacing:0.03em;
   display:inline-flex; align-items:center; gap:7px; padding:6px 12px; cursor:pointer;
@@ -255,17 +257,19 @@ button.pchip:focus-visible { outline:2px solid var(--accent); outline-offset:2px
 .ab-bs i { font-style:normal; font-size:10px; letter-spacing:0.12em; color:var(--ink-3); font-weight:600; }
 .ab-vs { margin-left:auto; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-3); }
 
-.ab-body { border:1px solid var(--line); border-top:0; background:var(--surface); padding:11px 12px 12px; }
+.ab-actions { border:1px solid var(--line); border-top:0; background:var(--surface);
+  padding:12px; min-height:96px; }
 .ab-q { font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);
   font-weight:600; margin-bottom:8px; }
-.ab-choices { display:flex; flex-wrap:wrap; gap:6px; }
-button.ab-btn { font:inherit; font-size:12.5px; font-weight:600; padding:8px 13px; cursor:pointer;
+.ab-choices { display:flex; flex-wrap:wrap; gap:7px; }
+button.ab-btn { font:inherit; font-size:13px; font-weight:600; padding:9px 13px; cursor:pointer;
   background:var(--surface); color:var(--ink); border:1px solid var(--line-strong);
   display:inline-flex; align-items:center; gap:7px; transition:background .12s; }
 button.ab-btn:hover { background:var(--surface-sunk); }
 button.ab-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 button.ab-btn i { width:9px; height:9px; border-radius:2px; flex:0 0 auto; }
-button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
+button.ab-btn.wide { flex:1 1 220px; justify-content:center; padding:11px 13px; font-size:13.5px; }
+.ab-count { border-bottom:0; }
 
 .ab-verdict { font-size:13px; line-height:1.45; }
 .ab-verdict .big { display:block; font-family:"Barlow Condensed",sans-serif; font-weight:700;
@@ -277,6 +281,7 @@ button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
 .ab-guess b { color:var(--ink); }
 
 .ab-log { border:1px solid var(--line); border-top:0; background:var(--surface-sunk); }
+#atbat-box { display:flex; flex-direction:column; }
 .ab-log div { display:grid; grid-template-columns:auto 1fr auto; gap:9px; padding:5px 12px;
   font-size:11px; color:var(--ink-2); border-bottom:1px solid var(--line); }
 .ab-log div:last-child { border-bottom:0; }
@@ -348,7 +353,7 @@ button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
 
   <div class="tabs" role="tablist" aria-label="Card view">
     <button class="tab" role="tab" data-tab="report" aria-selected="true"  aria-controls="panel-report">Report</button>
-    <button class="tab" role="tab" data-tab="flight" aria-selected="false" aria-controls="panel-flight">Flight</button>
+    <button class="tab" role="tab" data-tab="flight" aria-selected="false" aria-controls="panel-flight">Showdown</button>
   </div>
 
   <div id="panel-report" role="tabpanel">
@@ -472,43 +477,35 @@ button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
   </div><!-- /panel-report -->
 
   <div id="panel-flight" role="tabpanel" hidden>
-    <div class="band"><h2>Pitch Flight</h2>
-      <span class="band-note">real tracked trajectory &middot; representative pitch of each type</span></div>
+    <div class="band"><h2>Showdown</h2>
+      <span class="band-note">step in against him &middot; real trajectories, his real rates</span></div>
 
-    <div class="pitch-picker" id="pitch-picker" role="group" aria-label="Pitch type"></div>
-
-    <div class="mode-row" role="group" aria-label="Mode">
-      <button class="seg" data-mode="explore" aria-pressed="true">Explore</button>
-      <button class="seg" data-mode="atbat"   aria-pressed="false">Face him</button>
-      <span class="mode-hint" id="mode-hint">Pick a pitch and watch it come in.</span>
+    <div class="mode-row" role="group" aria-label="Batter handedness">
+      <span class="lbl">Batter</span>
+      <button class="seg" data-bhand="R" aria-pressed="true">RHH</button>
+      <button class="seg" data-bhand="L" aria-pressed="false">LHH</button>
+      <span class="mode-hint">His mix swings hard on the platoon &mdash; changing hands starts a new batter.</span>
     </div>
 
     <div class="flight-wrap">
       <div>
         <div class="stage">
-          <span class="stage-tag" id="stage-tag">Behind the plate</span>
+          <span class="stage-tag">Behind the plate</span>
           <canvas id="flight-canvas" width="1280" height="1000"
-                  role="img" aria-label="Animated pitch trajectory seen from behind home plate"></canvas>
+                  role="img" aria-label="Pitch coming in, seen from behind home plate"></canvas>
         </div>
-        <div class="controls" style="margin:11px 0 0">
-          <button class="seg" id="btn-play">&#9654;&nbsp; Replay</button>
-          <span class="lbl" style="margin-left:10px">Real time &middot; behind the plate</span>
-        </div>
+        <div class="ab-actions" id="ab-body"></div>
       </div>
 
-      <div>
-        <div class="flight-readout" id="readout-box"><dl id="flight-readout"></dl></div>
-
-        <div id="atbat-box" hidden>
-          <div class="ab-count">
-            <span class="ab-bs"><b id="ab-balls">0</b><i>B</i></span>
-            <span class="ab-bs"><b id="ab-strikes">0</b><i>S</i></span>
-            <span class="ab-vs" id="ab-vs"></span>
-          </div>
-          <div class="ab-body" id="ab-body"></div>
-          <div class="ab-log" id="ab-log"></div>
-          <div class="ab-tally" id="ab-tally"></div>
+      <div id="atbat-box">
+        <div class="ab-count">
+          <span class="ab-bs"><b id="ab-balls">0</b><i>B</i></span>
+          <span class="ab-bs"><b id="ab-strikes">0</b><i>S</i></span>
+          <span class="ab-vs" id="ab-vs"></span>
         </div>
+        <div class="ab-log" id="ab-log"></div>
+        <div class="ab-tally" id="ab-tally"></div>
+        <button class="seg" id="btn-play" style="margin-top:10px">&#9654;&nbsp; Replay that pitch</button>
       </div>
     </div>
   </div><!-- /panel-flight -->
@@ -1082,7 +1079,7 @@ function renderAll() {
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   if (state.pitches.length) renderMaps();
   paintRamps();
-  if (!document.getElementById("panel-flight").hidden) renderFlight();
+  if (!document.getElementById("panel-flight").hidden) { renderFlight(); abStart(); }
 }
 
 /* Location tables live in p/<id>.json — at ~500 pitchers they are far too
@@ -1122,7 +1119,7 @@ async function select(p) {
   renderHeader(); renderArsenal(); renderMovement();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   paintRamps();
-  if (!document.getElementById("panel-flight").hidden) { renderFlight(); if (AB.on) abStart(); }
+  if (!document.getElementById("panel-flight").hidden) { renderFlight(); abStart(); }
 
   if (cached) { setMapState(null); renderMaps(); return; }
 
@@ -1414,6 +1411,29 @@ function pitcherRig(p, hand) {
   };
 }
 
+/* A faint field, drawn from behind the plate. Ground level, real dimensions:
+   bases 90 ft apart, foul lines out to 330, fence arcing to 400 in centre.
+   Deliberately NOT part of the camera fit — it is scenery, and the far edges
+   are allowed to run off frame the way they would from the box. */
+const B1 = 63.64;                                   // 90 ft along a 45-degree line
+const FIELD_LINES = [
+  [[0, 0], [233, 233]],                             // right-field foul line
+  [[0, 0], [-233, 233]],                            // left-field foul line
+  [[0, 0], [B1, B1], [0, 2 * B1], [-B1, B1], [0, 0]] // the diamond
+];
+const FIELD_ARCS = [
+  { cx: 0, cy: 59,  r: 95,  from: -0.62, to: 0.62 },   // infield dirt
+  { cx: 0, cy: 0,   r: 400, from: -0.72, to: 0.72 }    // outfield fence
+];
+function arcPts(a, n = 44) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = Math.PI / 2 + a.from + (a.to - a.from) * (i / n);
+    out.push([a.cx + a.r * Math.cos(t), a.cy + a.r * Math.sin(t), 0]);
+  }
+  return out;
+}
+
 const PLATE_XY = [[-0.708,1.417],[0.708,1.417],[0.708,0.708],[0,0],[-0.708,0.708]];
 /* front edge of the rubber: 60.5 ft from the plate, atop a 10-inch mound */
 const RUBBER = [[-1, 60.5, 0.833], [1, 60.5, 0.833]];
@@ -1438,9 +1458,12 @@ function sharedView(W, H) {
       pts.push(pa.pts[pa.pts.length - 1]);
     }
   }
-  /* the mound reaches back to y=68 and the pitcher's head stands ~6.5 ft up;
-     both must be inside the fit or they clip in the side view */
-  pts.push(...ZONE3, ...RUBBER, ...moundRing(MOUND_R, 16));
+  /* Mound, rubber, zone AND home plate all inside the fit. The plate was
+     excluded once because it dominated the framing; with the pitcher and
+     mound in the scene it no longer does, and leaving it out clipped it
+     off the bottom of the stage. */
+  pts.push(...ZONE3, ...RUBBER, ...moundRing(MOUND_R, 16),
+           ...PLATE_XY.map(q => [q[0], q[1], 0]));
   for (const p of DATA.pitchers) {
     const fl = p.flight || {};
     for (const id in fl) {
@@ -1511,8 +1534,23 @@ function drawFlight() {
     g.globalAlpha = 1;
   }
 
+  /* the field first, faintest of all */
+  const drawOpen = (pts3, stroke, w, alpha) => {
+    g.save(); g.globalAlpha = alpha; g.strokeStyle = stroke; g.lineWidth = w;
+    g.beginPath();
+    let pen = false;
+    for (const P of pts3) {
+      const q = pr(P);
+      if (!q || Math.abs(q[0]) > 8000 || Math.abs(q[1]) > 8000) { pen = false; continue; }
+      if (pen) g.lineTo(q[0], q[1]); else { g.moveTo(q[0], q[1]); pen = true; }
+    }
+    g.stroke(); g.restore();
+  };
+  FIELD_LINES.forEach(l => drawOpen(l.map(q => [q[0], q[1], 0]), line, 1.4, 0.55));
+  FIELD_ARCS.forEach(a => drawOpen(arcPts(a), line, 1.4, 0.45));
+
   /* home plate, the rubber, then the rulebook zone with its thirds */
-  poly(PLATE_XY.map(q => [q[0], q[1], 0]), line, 3);
+  poly(PLATE_XY.map(q => [q[0], q[1], 0]), css("--ink-3"), 3);
   poly(RUBBER, ink3, 3);
   for (let i = 1; i < 3; i++) {
     const zx = -0.83 + (1.66/3)*i, zz = SZ.bot + ((SZ.top-SZ.bot)/3)*i;
@@ -1586,9 +1624,6 @@ function selectPitch(id, override) {
   FL.aimed = !!override;
   FL.progress = 1;
 
-  document.querySelectorAll("#pitch-picker .pchip").forEach(b =>
-    b.setAttribute("aria-pressed", String(b.dataset.pitch === id)));
-
   if (!FL.path) { document.getElementById("flight-readout").innerHTML =
       "<dt>Trajectory</dt><dd>unavailable</dd>"; return; }
 
@@ -1609,29 +1644,10 @@ function selectPitch(id, override) {
   drawFlight();
 }
 
-function clearReadout() {
-  document.getElementById("flight-readout").innerHTML =
-    '<dt>Pitch</dt><dd style="font-size:12px;color:var(--ink-3)">pick one to see it</dd>';
-  document.querySelectorAll("#pitch-picker .pchip")
-    .forEach(b => b.setAttribute("aria-pressed", "false"));
-}
-
 function renderFlight() {
-  const p = state.p, fl = p.flight || {};
-  const avail = p.arsenal.filter(a => fl[a.id]);
-  const pick = d3.select("#pitch-picker");
-  pick.selectAll("button").data(avail, d => d.id).join("button")
-    .attr("class", "pchip").attr("type", "button")
-    .attr("aria-pressed", "false")
-    .attr("data-pitch", d => d.id)
-    .html(d => `<i style="background:var(${SLOTS[p.arsenal.indexOf(d) % 8]})"></i>${d.name}`)
-    .on("click", (ev, d) => { selectPitch(d.id); playFlight(); });
-
-  /* Deliberately no auto-selection. The stage shows the mound, the pitcher
-     and the zone; a pitch only flies once the user picks one (Explore) or
-     guesses and it is thrown (Face him). */
+  /* The stage draws empty — mound, pitcher, plate, field, zone — and a pitch
+     only flies once the batter has guessed and it has been thrown. */
   FL.path = null; FL.type = null;
-  clearReadout();
   drawFlight();
 }
 
@@ -1764,7 +1780,7 @@ function abAskGuess() {
   drawFlight();
   abSetCount();
   $ab("ab-body").innerHTML =
-    `<div class="ab-q">${AB.balls}-${AB.strikes} · what's coming?</div>`
+    `<div class="ab-q">${AB.balls}-${AB.strikes} vs ${AB.hand}HH &middot; what's coming?</div>`
     + `<div class="ab-choices">` + avail.map(a =>
         `<button class="ab-btn" data-guess="${a.id}">`
         + `<i style="background:var(${SLOTS[p.arsenal.indexOf(a) % 8]})"></i>${a.name}</button>`).join("")
@@ -1890,30 +1906,26 @@ function abResolve(act) {
 
 function abNewBatter() {
   AB.balls = 0; AB.strikes = 0; AB.pitchNo = 0; AB.log = [];
-  AB.hand = Math.random() < 0.5 ? "R" : "L";
   $ab("ab-log").innerHTML = "";
   abAskGuess();
 }
 function abStart() {
   AB.on = true;
+  const picked = document.querySelector('button.seg[data-bhand][aria-pressed="true"]');
+  AB.hand = picked ? picked.dataset.bhand : "R";
   AB.tally = { ab:0,h:0,so:0,bb:0,out:0,guessed:0,guesses:0,h1:0,h2:0,h3:0,hr:0,tb:0,
                ooz:0, chased:0 };
   abNewBatter(); abTally();
 }
 
-document.querySelectorAll("button.seg[data-mode]").forEach(b =>
-  b.addEventListener("click", () => {
-    document.querySelectorAll("button.seg[data-mode]").forEach(o =>
-      o.setAttribute("aria-pressed", String(o === b)));
-    const ab = b.dataset.mode === "atbat";
-    AB.on = ab;
-    $ab("atbat-box").hidden = !ab;
-    $ab("readout-box").hidden = ab;
-    document.getElementById("pitch-picker").hidden = ab;
-    $ab("mode-hint").textContent = ab
-      ? "Guess the pitch, then decide. Every outcome comes from his real rates."
-      : "Pick a pitch and watch it come in.";
-    if (ab) abStart();
+/* Batter handedness is a real lever, not a coin flip: Skenes throws 27%
+   sweepers to righties and 8% to lefties. Switching starts a new batter. */
+document.querySelectorAll("button.seg[data-bhand]").forEach(btn =>
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("button.seg[data-bhand]").forEach(o =>
+      o.setAttribute("aria-pressed", String(o === btn)));
+    AB.hand = btn.dataset.bhand;
+    abStart();
   }));
 
 /* ── flight controls ───────────────────────────────────────────────────── */
@@ -1926,7 +1938,7 @@ document.querySelectorAll("button.tab").forEach(btn =>
       b.setAttribute("aria-selected", String(b === btn)));
     document.getElementById("panel-report").hidden = which !== "report";
     document.getElementById("panel-flight").hidden = which !== "flight";
-    if (which === "flight") { renderFlight(); if (AB.on) abStart(); else playFlight(); }
+    if (which === "flight") { renderFlight(); abStart(); }
     else stopFlight();
   }));
 
