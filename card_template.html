@@ -807,9 +807,9 @@ function drawArmFigure() {
     const th = aa * Math.PI / 180, L = 42, sy = by - 50;
     svg.append("line").attr("x1", bx).attr("y1", sy)
       .attr("x2", bx + sgn * L * Math.cos(th)).attr("y2", sy - L * Math.sin(th))
-      .attr("stroke", ink).attr("stroke-width", 6).attr("stroke-linecap", "round");
+      .attr("stroke", ink).attr("stroke-width", 3.6).attr("stroke-linecap", "round");
     svg.append("circle").attr("cx", bx + sgn * L * Math.cos(th))
-      .attr("cy", sy - L * Math.sin(th)).attr("r", 4.5).attr("fill", ink);
+      .attr("cy", sy - L * Math.sin(th)).attr("r", 3.2).attr("fill", ink);
     svg.append("path")
       .attr("d", `M${bx + sgn * 20},${sy} A20,20 0 0,${sgn > 0 ? 0 : 1} `
                  + `${bx + sgn * 20 * Math.cos(th)},${sy - 20 * Math.sin(th)}`)

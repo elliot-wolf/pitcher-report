@@ -22,9 +22,14 @@ shutil.rmtree(OUTDIR, ignore_errors=True)
 os.makedirs(f"{OUTDIR}/p", exist_ok=True)
 
 # The pitcher shown on first paint keeps their locations inline, so the page
-# is useful before any fetch resolves.
-default = max(data["pitchers"], key=lambda p: p.get("n", 0))
+# is useful before any fetch resolves. Falls back to the heaviest workload if
+# the named default is not in this build (traded, hurt, under the innings cut).
+PREFERRED_DEFAULT = "Payton Tolle"
+default = next((p for p in data["pitchers"] if p["name"] == PREFERRED_DEFAULT), None) \
+       or max(data["pitchers"], key=lambda p: p.get("n", 0))
 default_id = default["id"]
+if default["name"] != PREFERRED_DEFAULT:
+    print(f"note: {PREFERRED_DEFAULT} not in this build — defaulting to {default['name']}")
 
 split = 0
 for p in data["pitchers"]:
