@@ -300,7 +300,7 @@ button.ab-btn.wide { flex:1 1 220px; justify-content:center; padding:11px 13px; 
   cursor:default; transition:border-color .12s, background .12s; }
 .arm-card:hover, .arm-card:focus-visible { border-color:var(--accent); background:var(--surface); }
 .arm-card:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-.arm-card svg { display:block; width:100%; height:auto; }
+.arm-card svg { display:block; width:100%; max-width:112px; height:auto; margin:0 auto 2px; }
 .arm-lab { font-size:9.5px; letter-spacing:0.11em; text-transform:uppercase;
   color:var(--ink-3); font-weight:600; margin-top:6px; }
 .arm-val { font-size:26px; font-weight:600; line-height:1.05; }
@@ -1371,59 +1371,43 @@ function moundRing(r, n = 40) {
   return pts;
 }
 
-/* ── the pitcher ─────────────────────────────────────────────────────────
-   Hand sits on the measured release point of the pitch being shown, so the
-   figure moves with the arsenal. Everything else is proportioned off his
-   listed height, and his feet stand on moundZ, so a 6'7" arm and a 5'10" arm
-   are drawn at their real statures. */
+/* ── the pitcher's arm ───────────────────────────────────────────────────
+   Not a figure. At 55 ft a stick body renders about 40px tall, so the limbs
+   read as clutter and the arm — the only part carrying information — gets
+   lost in them. This draws just the throwing arm: a short vector into the
+   measured release point, laid along his real arm angle. Stature lives on the
+   Movement Profile card, where it is drawn large enough to mean something.
+
+   NB the scene uses the plate_x frame, where third base is NEGATIVE x, so a
+   righty's arm side is -1 here. That is the opposite of armSideSign(), which
+   is for the movement chart's pitcher's-view frame. */
 function heightFt(str) {
   const m = /(\d+)\s*'\s*(\d+)?/.exec(str || "");
   return m ? (+m[1] + (+(m[2] || 0)) / 12) : 6.2;
 }
-function pitcherRig(p, hand) {
-  const H = heightFt(p.height);
-  const side = p.throws === "L" ? 1 : -1;          // arm side in plate_x terms
-  const [hx, hy, hz] = hand;
-
-  const ffY = hy + 0.55, ffX = hx * 0.18;
-  const ffZ = moundZ(ffX, ffY);
-  const hipZ = ffZ + 0.46 * H;
-  const shZ  = hipZ + 0.30 * H;
-
-  const hip      = [hx * 0.42, hy + 2.25, hipZ];
-  const shoulder = [hx * 0.46, hy + 1.75, shZ];
-  const headR    = 0.055 * H;
-  const head     = [shoulder[0] - side * 0.24, shoulder[1] + 0.26, shZ + 0.055 * H + headR];
-  const elbow    = [(hx + shoulder[0]) / 2 + side * 0.18,
-                    (hy + shoulder[1]) / 2 + 0.15,
-                    (hz + shZ) / 2 + 0.10];
-  const glove    = [-hx * 0.40, hy + 1.05, shZ - 0.55];
-  const bfX = side * 0.5, bfY = 60.4;
-  return {
-    H, headR, head,
-    bones: [
-      [[bfX, bfY, moundZ(bfX, bfY)], hip],       // back leg, still on the rubber
-      [[ffX, ffY, ffZ], hip],                    // front leg, planted
-      [hip, shoulder],                           // torso
-      [shoulder, glove],                         // glove side
-      [shoulder, elbow], [elbow, [hx, hy, hz]]   // throwing arm to the ball
-    ]
-  };
+function armVector(p, hand) {
+  const side = p.throws === "L" ? 1 : -1;
+  const th = ((p.armAngle == null ? 35 : p.armAngle)) * Math.PI / 180;
+  const L = 0.36 * heightFt(p.height);          // shoulder to hand, roughly
+  const shoulder = [ hand[0] - side * L * Math.cos(th),
+                     hand[1] + 0.55,
+                     hand[2] - L * Math.sin(th) ];
+  return { shoulder, hand };
 }
 
 /* A faint field, drawn from behind the plate. Ground level, real dimensions:
    bases 90 ft apart, foul lines out to 330, fence arcing to 400 in centre.
    Deliberately NOT part of the camera fit — it is scenery, and the far edges
    are allowed to run off frame the way they would from the box. */
-const B1 = 63.64;                                   // 90 ft along a 45-degree line
+const B1 = 63.64;                                     // 90 ft along a 45-degree line
 const FIELD_LINES = [
-  [[0, 0], [233, 233]],                             // right-field foul line
-  [[0, 0], [-233, 233]],                            // left-field foul line
-  [[0, 0], [B1, B1], [0, 2 * B1], [-B1, B1], [0, 0]] // the diamond
+  [[0, 0], [233, 233]],                               // right-field foul line
+  [[0, 0], [-233, 233]],                              // left-field foul line
+  [[0, 0], [B1, B1], [0, 2 * B1], [-B1, B1], [0, 0]]  // the diamond
 ];
 const FIELD_ARCS = [
-  { cx: 0, cy: 59,  r: 95,  from: -0.62, to: 0.62 },   // infield dirt
-  { cx: 0, cy: 0,   r: 400, from: -0.72, to: 0.72 }    // outfield fence
+  { cx: 0, cy: 59, r: 95,  from: -0.62, to: 0.62 },   // infield dirt
+  { cx: 0, cy: 0,  r: 400, from: -0.72, to: 0.72 }    // outfield fence
 ];
 function arcPts(a, n = 44) {
   const out = [];
@@ -1468,9 +1452,8 @@ function sharedView(W, H) {
     const fl = p.flight || {};
     for (const id in fl) {
       const pa = buildPath(fl[id]); if (!pa) continue;
-      const rig = pitcherRig(p, pa.pts[0]);
-      pts.push(rig.head);
-      rig.bones.forEach(b => pts.push(b[0], b[1]));
+      const arm = armVector(p, pa.pts[0]);
+      pts.push(arm.shoulder, arm.hand);
       break;                       // one pitch per pitcher is enough for extremes
     }
   }
@@ -1516,22 +1499,18 @@ function drawFlight() {
     const rel = state.p.rel || {};
     const handPt = FL.path ? FL.path.pts[0]
       : [rel.x != null ? rel.x : 0, 60.5 - (rel.ext || 6.3), rel.z != null ? rel.z : 5.8];
-    const rig = pitcherRig(state.p, handPt);
-    g.strokeStyle = ink3; g.lineCap = "round"; g.globalAlpha = 0.9;
-    const hp = pr(rig.head);
-    const limb = hp ? Math.max(2, (CAMS[FL.cam].tag ? 1 : 1) * V.fx * 0.055 / hp[2]) : 2.5;
-    rig.bones.forEach(([a, b]) => {
-      const A = pr(a), B = pr(b);
-      if (!A || !B) return;
-      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]);
-      g.lineWidth = limb; g.stroke();
-    });
-    if (hp) {
+    const arm = armVector(state.p, handPt);
+    const A = pr(arm.shoulder), B = pr(arm.hand);
+    if (A && B) {
+      g.save();
+      g.strokeStyle = ink3; g.lineCap = "round"; g.globalAlpha = 0.85;
+      g.lineWidth = Math.max(2.5, V.fx * 0.075 / B[2]);
+      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.stroke();
       g.beginPath();
-      g.arc(hp[0], hp[1], Math.max(2, V.fx * rig.headR / hp[2]), 0, 6.2832);
+      g.arc(B[0], B[1], Math.max(2, V.fx * 0.055 / B[2]), 0, 6.2832);
       g.fillStyle = ink3; g.fill();
+      g.restore();
     }
-    g.globalAlpha = 1;
   }
 
   /* the field first, faintest of all */
@@ -1617,30 +1596,14 @@ function selectPitch(id, override) {
   const p = state.p, T = override || (p.flight || {})[id];
   if (!T) return;
   const i = p.arsenal.findIndex(a => a.id === id);
-  const a = p.arsenal[i];
   FL.type = id;
   FL.color = css(SLOTS[i % 8]);
   FL.path = buildPath(T);
   FL.aimed = !!override;
   FL.progress = 1;
-
-  if (!FL.path) { document.getElementById("flight-readout").innerHTML =
-      "<dt>Trajectory</dt><dd>unavailable</dd>"; return; }
-
-  const rows = [
-    ["Velocity",      `${f1(a.velo)} mph`],
-    ["Flight time",   `${FL.path.flight.toFixed(3)} s`],
-    ["Extension",     `${T[8].toFixed(2)} ft`],
-    ["Release point", `${(60.5 - T[8]).toFixed(1)} ft from plate`],
-    ["Total drop",    `${FL.path.drop.toFixed(1)}&Prime;`],
-    ["Induced break", `${FL.path.induced > 0 ? "+" : ""}${FL.path.induced.toFixed(1)}&Prime;`],
-    ["Horizontal",    `${a.hb > 0 ? "+" : ""}${f1(a.hb)}&Prime;`],
-    ["Approach angle",`${f1(a.vaa)}&deg;`],
-    ["Crosses at",    `${FL.path.plate[0] > 0 ? "+" : ""}${FL.path.plate[0].toFixed(2)}, ${FL.path.plate[1].toFixed(2)} ft`],
-  ];
-  document.getElementById("flight-readout").innerHTML =
-    rows.map(r => `<dt>${r[0]}</dt><dd class="num">${r[1]}</dd>`).join("");
-
+  /* No stats panel here on purpose: naming the pitch and its shape before the
+     swing/take decision would give the guess away. The verdict says what it
+     was, after. */
   drawFlight();
 }
 

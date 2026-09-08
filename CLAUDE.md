@@ -122,6 +122,16 @@ Things worth knowing before you touch the camera code:
   the simulator read the stored values directly, so they are unaffected. `60.5 − extension` matches Savant's own
   `release_pos_y` column exactly (median difference 0.0000 ft over 1,134
   pitches), so extension is honoured per pitcher.
+- **The pitcher is an arm, not a figure.** At 55 ft a stick body renders about
+  40px tall, so the limbs read as clutter and the arm — the only part carrying
+  information — is lost in them. `armVector()` draws just the throwing arm into
+  the measured release point at his real arm angle. Stature lives on the
+  Movement Profile card, drawn large enough to mean something.
+- **Frames differ, do not reuse `armSideSign()` in the 3D scene.** The scene
+  uses the plate_x frame, where third base is NEGATIVE x, so a righty's arm
+  side is -1. `armSideSign()` is for the movement chart's pitcher's-view frame,
+  where it is +1. Verified: the drawn arm angle matches `armAngle` exactly
+  (Skenes 25.7 to 3B, Harrison 31.6 to 1B).
 - **The camera fit must be SHARED across pitchers, not per pitcher.** Fitting
   each arm's own trajectories to fill the frame cancelled out release-distance
   differences: Valdez (5.6 ft extension) and Gilbert (7.6 ft) projected their
