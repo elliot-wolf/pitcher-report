@@ -158,7 +158,8 @@ td.note { text-align:left; font-size:11.5px; color:var(--ink-2); white-space:nor
 button.seg { font:inherit; font-size:11.5px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase;
   padding:5px 11px; background:var(--surface); color:var(--ink-2); border:1px solid var(--line-strong);
   cursor:pointer; transition:background .12s, color .12s; }
-button.seg:hover { background:var(--surface-sunk); color:var(--ink); }
+button.seg:hover:not(:disabled) { background:var(--surface-sunk); color:var(--ink); }
+button.seg:disabled { opacity:.42; cursor:default; }
 button.seg[aria-pressed="true"] { background:var(--band); color:var(--band-ink); border-color:var(--band); }
 button.seg:focus-visible, #q:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
@@ -505,7 +506,7 @@ button.ab-btn.wide { flex:1 1 220px; justify-content:center; padding:11px 13px; 
         </div>
         <div class="ab-log" id="ab-log"></div>
         <div class="ab-tally" id="ab-tally"></div>
-        <button class="seg" id="btn-play" style="margin-top:10px">&#9654;&nbsp; Replay that pitch</button>
+        <button class="seg" id="btn-play" style="margin-top:10px" disabled>&#9654;&nbsp; Replay last pitch &frac14;&times;</button>
       </div>
     </div>
   </div><!-- /panel-flight -->
@@ -1578,11 +1579,11 @@ function stopFlight() {
   if (FL.raf) cancelAnimationFrame(FL.raf);
   FL.raf = null; FL.playing = false;
 }
-function playFlight() {
+function playFlight(speed) {
   if (!FL.path) return;
   stopFlight();
   FL.playing = true; FL.start = performance.now();
-  const dur = (FL.path.flight / FL.speed) * 1000;
+  const dur = (FL.path.flight / (speed || FL.speed)) * 1000;
   const step = now => {
     FL.progress = Math.min(1, (now - FL.start) / dur);
     drawFlight();
@@ -1607,11 +1608,17 @@ function selectPitch(id, override) {
   drawFlight();
 }
 
+function syncReplayBtn() {
+  const b = document.getElementById("btn-play");
+  if (b) b.disabled = !(FL.path || FL.lastT);
+}
+
 function renderFlight() {
   /* The stage draws empty — mound, pitcher, plate, field, zone — and a pitch
      only flies once the batter has guessed and it has been thrown. */
   FL.path = null; FL.type = null;
   drawFlight();
+  syncReplayBtn();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1741,6 +1748,7 @@ function abAskGuess() {
   AB.throwSeq++;                       // invalidate any in-flight timer
   FL.path = null; FL.type = null;      // clear the last pitch before the next guess
   drawFlight();
+  syncReplayBtn();
   abSetCount();
   $ab("ab-body").innerHTML =
     `<div class="ab-q">${AB.balls}-${AB.strikes} vs ${AB.hand}HH &middot; what's coming?</div>`
@@ -1768,9 +1776,13 @@ function abThrow(guess) {
   AB.tally.guesses++;
   if (guess === typeId) AB.tally.guessed++;
 
-  /* fly the pitch that was actually sampled, not the stock one */
+  /* fly the pitch that was actually sampled, not the stock one, and keep it
+     so it can be replayed slowly once the stage clears for the next guess */
   if (base) {
-    selectPitch(typeId, aimedTrajectory(base, loc[0], loc[1]));
+    const aimed = aimedTrajectory(base, loc[0], loc[1]);
+    FL.lastT = aimed; FL.lastType = typeId;
+    selectPitch(typeId, aimed);
+    syncReplayBtn();
     playFlight();
   }
   $ab("ab-body").innerHTML = `<div class="ab-q">pitch is on the way…</div>`;
@@ -1869,6 +1881,7 @@ function abResolve(act) {
 
 function abNewBatter() {
   AB.balls = 0; AB.strikes = 0; AB.pitchNo = 0; AB.log = [];
+  FL.lastT = null; FL.lastType = null;      // nothing to replay for a new batter
   $ab("ab-log").innerHTML = "";
   abAskGuess();
 }
@@ -1892,7 +1905,15 @@ document.querySelectorAll("button.seg[data-bhand]").forEach(btn =>
   }));
 
 /* ── flight controls ───────────────────────────────────────────────────── */
-document.getElementById("btn-play").addEventListener("click", playFlight);
+/* Real time is 0.39 s — too quick to read shape. Replay walks the previous
+   pitch back at quarter speed, restoring it if the stage has since cleared
+   for the next guess. */
+const REPLAY_SPEED = 0.25;
+function replayLast() {
+  if (!FL.path && FL.lastT && FL.lastType) selectPitch(FL.lastType, FL.lastT);
+  if (FL.path) playFlight(REPLAY_SPEED);
+}
+document.getElementById("btn-play").addEventListener("click", replayLast);
 /* ── tabs ──────────────────────────────────────────────────────────────── */
 document.querySelectorAll("button.tab").forEach(btn =>
   btn.addEventListener("click", () => {

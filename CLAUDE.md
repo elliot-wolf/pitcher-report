@@ -143,7 +143,10 @@ Things worth knowing before you touch the camera code:
   projection: at 32 ft, a pitcher's arm-side release position shifted screen-x
   more than his extension did. Reading release distance back out of pixel
   position now recovers the true value to within 0.21 ft.
-- The tab is **Showdown**: one mode, real time, behind the plate. There is no
+- The tab is **Showdown**: one mode, real time, behind the plate. The replay
+  button walks the *previous* pitch back at quarter speed (0.39 s becomes
+  1.55 s) — `FL.lastT`/`FL.lastType` survive the stage clearing for the next
+  guess, so it still works once the board is empty. Cleared on a new batter. There is no
   Explore mode and no pitch picker — the stage draws the field, mound, pitcher,
   plate and zone, and a pitch only flies once the batter has guessed.
 - **Batter handedness is chosen, not random.** It has to be: Skenes at 0-0
