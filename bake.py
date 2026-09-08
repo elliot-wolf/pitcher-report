@@ -29,13 +29,15 @@ default_id = default["id"]
 split = 0
 for p in data["pitchers"]:
     packed = p.pop("pitches", "")
+    move = p.pop("move", [])
     if not packed:
         continue
     with open(f"{OUTDIR}/p/{p['id']}.json", "w") as fh:
-        json.dump({"pitches": packed}, fh, separators=(",", ":"))
+        json.dump({"pitches": packed, "move": move}, fh, separators=(",", ":"))
     split += 1
     if p["id"] == default_id:
         p["pitches"] = packed          # inline this one only
+        p["move"] = move
 
 data["defaultId"] = default_id
 # Per-pitcher files are fetched with this stamp appended, so a rebuild can

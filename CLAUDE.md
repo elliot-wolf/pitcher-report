@@ -206,6 +206,33 @@ A flat league chase rate instead of the pitcher's own put Skenes at 13.1%,
 which is a hitter-model artefact, not a location-model error. If you ever want
 to "fix" the walk rate with a knob, don't — check the chase assumption first.
 
+
+## Movement profile
+
+Induced break, drawn from the **pitcher's** point of view: +x moves toward
+third base, +y is induced rise. `pfx_x` is catcher's-view so it flips
+(`chartX = hb * (throws === "R" ? 1 : -1)`); `pfx_z` is already gravity-removed,
+so a "rising" fastball is one that falls less than a spinless ball.
+
+- Individual pitches are a **stratified sample** (~115 per pitcher, min 4 per
+  type so a 3%-usage pitch still appears), stored in `p/<id>.json` alongside
+  the locations. Per-type means and the league ellipses use **all** pitches, so
+  nothing quantitative rests on the sample — only the cloud shape.
+- Per-type means render straight from the index, so the chart is never empty
+  while the sample fetches.
+- League ellipses are ±1 SD per pitch type **and throwing hand**. Sanity check:
+  R|FF mean (+7.8, +15.6) and L|FF (-7.9, +15.6) — exact mirrors.
+- `arm_angle` is a real Savant column (82-91% populated; the median is stored).
+  Validation: the only negative values in the whole build are Tyler Rogers
+  (-60.8, MLB's submariner), Tim Hill, Ryan Thompson and Hoby Milner. If more
+  than a handful go negative, something is wrong.
+- **Mean dots are direct-labelled on purpose.** The palette's slot order is
+  validated for *adjacent* pairs (stacked bars); a scatter shows all pairs at
+  once, and a six-pitch arsenal lands on both greens (slots 3 and 6). Identity
+  must not be colour alone here.
+- An `<svg>` flex item ignores `width:100%` and falls back to its 300px
+  intrinsic size — `.move-plot` is block with auto margins for that reason.
+
 ## Data sources
 
 Both are free and need no auth or API key.
@@ -244,6 +271,13 @@ than inventing it).
   The grid is O(cells x pitches) in pure Python; with ~500 pitchers the pool
   passes a million pitches and the build would take minutes for no statistical
   gain.
+- **Watch for name shadowing in `build_cards.py`.** It bit twice while adding
+  the movement profile. `build_pitcher` has a local `st = meta["stat"]`, so
+  `import statistics as st` is shadowed inside it (the import is aliased
+  `_stats` for this reason). `main` binds the argparse namespace to `a`, so a
+  loop variable named `a` there breaks `a.season` several lines later. Both
+  failed deep into a 12-minute build. Prefer distinctive names in those two
+  functions.
 - Relievers have `role: "RP"` and GS of 0. Anything dividing by games started
   needs a guard — the season line uses appearances (`Pit/App`) and swaps GS for
   SV on relievers.

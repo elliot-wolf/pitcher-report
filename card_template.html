@@ -284,6 +284,35 @@ button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
 .ab-log .r { text-align:right; font-weight:600; color:var(--ink); }
 .ab-tally { font-size:11px; color:var(--ink-3); padding:7px 2px 0; line-height:1.5; }
 
+.move-wrap { display:grid; grid-template-columns:minmax(0,1fr) 220px; gap:16px;
+  align-items:start; border:1px solid var(--line); background:var(--surface); padding:12px; }
+/* NB: not a flex container — an <svg> flex item ignores width:100% and falls
+   back to its 300px intrinsic size. Block plus auto margins is reliable. */
+.move-plot { display:block; }
+.move-plot svg { display:block; width:100%; max-width:620px; height:auto; margin:0 auto; }
+.move-side { display:flex; flex-direction:column; gap:12px; }
+.arm-card { border:1px solid var(--line); background:var(--surface-sunk); padding:10px 11px;
+  cursor:default; transition:border-color .12s, background .12s; }
+.arm-card:hover, .arm-card:focus-visible { border-color:var(--accent); background:var(--surface); }
+.arm-card:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.arm-card svg { display:block; width:100%; height:auto; }
+.arm-lab { font-size:9.5px; letter-spacing:0.11em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:600; margin-top:6px; }
+.arm-val { font-size:26px; font-weight:600; line-height:1.05; }
+.arm-hint { font-size:10px; color:var(--ink-3); margin-top:2px; }
+.arm-card:hover .arm-hint, .arm-card:focus-visible .arm-hint { color:var(--accent); }
+.move-key { display:flex; flex-direction:column; gap:0; border:1px solid var(--line); }
+.move-key .kr { display:grid; grid-template-columns:auto 1fr auto auto; gap:8px;
+  align-items:center; padding:5px 9px; border-bottom:1px solid var(--line); font-size:11.5px; }
+.move-key .kr:last-child { border-bottom:0; }
+.move-key .kd { width:11px; height:11px; border-radius:50%; }
+.move-key .kn { font-weight:600; }
+.move-key .ku, .move-key .kv { color:var(--ink-2); font-size:11px; }
+.move-key .kv { min-width:38px; text-align:right; }
+.move-key .kh { font-size:9px; letter-spacing:0.09em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:600; }
+@media (max-width:820px) { .move-wrap { grid-template-columns:minmax(0,1fr); } }
+
 #tip { position:fixed; pointer-events:none; opacity:0; background:var(--band); color:var(--band-ink);
   padding:6px 9px; font-size:11.5px; line-height:1.35; border-radius:3px; z-index:50; max-width:230px; transition:opacity .1s; }
 
@@ -327,6 +356,24 @@ button.ab-btn.wide { flex:1 1 45%; justify-content:center; }
   <section>
     <div class="band"><h2>Season Line</h2><span class="band-note" id="season-note"></span></div>
     <dl class="statline" id="statline"></dl>
+  </section>
+
+  <section>
+    <div class="band"><h2>Movement Profile</h2>
+      <span class="band-note">induced break &middot; pitcher&#39;s view &middot; inches</span></div>
+    <div class="move-wrap">
+      <div class="move-plot"><div id="move-chart"></div></div>
+      <div class="move-side">
+        <div class="arm-card" id="arm-card" tabindex="0"
+             aria-label="Arm angle. Hover to show the slot on the plot.">
+          <div id="arm-fig"></div>
+          <div class="arm-lab">Arm angle</div>
+          <div class="arm-val num" id="arm-val">&mdash;</div>
+          <div class="arm-hint">hover to show the slot</div>
+        </div>
+        <div class="move-key" id="move-key"></div>
+      </div>
+    </div>
   </section>
 
   <section>
@@ -518,7 +565,7 @@ function decode(str, arsenal) {
 }
 
 /* ── state ─────────────────────────────────────────────────────────────── */
-const state = { p: null, pitches: [], count: "all" };
+const state = { p: null, pitches: [], move: [], count: "all" };
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const pct = d3.format(".0%"), f1 = d3.format(".1f");
 const nn = (v, fmt, suffix = "") => (v === null || v === undefined)
@@ -603,6 +650,209 @@ function renderArsenal() {
   d3.select("#pitch-legend").selectAll(":scope > span").data(p.arsenal).join("span")
     .html((d,i) => `<i style="background:var(${SLOTS[i%8]})"></i>${d.name}`);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MOVEMENT PROFILE — induced break, drawn from the pitcher's point of view.
+
+   Statcast's pfx_x is catcher's-view, so it flips: +x here moves toward third
+   base, which is the arm side for a righty and the glove side for a lefty.
+   +y is induced vertical break — gravity already removed, so a "rising"
+   fastball is one that falls less than a spinless ball, never one that rises.
+
+   The per-type means come from the index and draw immediately; the individual
+   pitches arrive with the pitcher's location file and fill in after.
+   ══════════════════════════════════════════════════════════════════════════ */
+const MV = { R: 26, pad: 46, hover: false };   // pad leaves room outside the ring for captions
+
+function armSideSign(p) { return p.throws === "L" ? -1 : 1; }
+
+function drawMovement() {
+  const p = state.p;
+  const host = d3.select("#move-chart");
+  host.selectAll("*").remove();
+
+  const S = 520, cx = S / 2, cy = S / 2;
+  const r = d3.scaleLinear().domain([0, MV.R]).range([0, S / 2 - MV.pad]);
+  const X = v => cx + r(v), Y = v => cy - r(v);
+
+  const svg = host.append("svg")
+    .attr("viewBox", `0 0 ${S} ${S}`)
+    .attr("role", "img")
+    .attr("aria-label", `${p.name} induced break by pitch type, inches`);
+
+  const ink = css("--ink"), ink2 = css("--ink-2"), ink3 = css("--ink-3"), line = css("--line");
+
+  svg.append("circle").attr("cx", cx).attr("cy", cy).attr("r", r(MV.R))
+    .attr("fill", css("--surface-sunk")).attr("stroke", line);
+
+  /* rings every 6 inches */
+  [6, 12, 18, 24].forEach(v => {
+    svg.append("circle").attr("cx", cx).attr("cy", cy).attr("r", r(v))
+      .attr("fill", "none").attr("stroke", line)
+      .attr("stroke-dasharray", v % 12 ? "3 4" : null);
+    const lab = (x, y, anchor) => svg.append("text").attr("x", x).attr("y", y)
+      .attr("text-anchor", anchor).attr("fill", ink3).style("font-size", "10px")
+      .style("font-family", '"IBM Plex Mono",monospace').text(`${v}"`);
+    lab(cx + 5, Y(v) - 4, "start");     // up the vertical axis
+    lab(X(v), cy - 6, "middle");        // out to the right only
+    lab(cx + 5, Y(-v) + 12, "start");   // down the vertical axis
+  });
+  svg.append("line").attr("x1", X(-MV.R)).attr("x2", X(MV.R)).attr("y1", cy).attr("y2", cy)
+    .attr("stroke", ink3).attr("stroke-width", 1);
+  svg.append("line").attr("y1", Y(-MV.R)).attr("y2", Y(MV.R)).attr("x1", cx).attr("x2", cx)
+    .attr("stroke", ink3).attr("stroke-width", 1);
+
+  const cap = (x, y, t, anchor) => svg.append("text").attr("x", x).attr("y", y)
+    .attr("text-anchor", anchor || "middle").attr("fill", ink2)
+    .style("font-family", '"Barlow Condensed",sans-serif').style("font-size", "11px")
+    .style("font-weight", 700).style("letter-spacing", "0.1em").text(t);
+  cap(cx, 15, "1B ◀  MOVES TOWARD  ▶ 3B");
+  cap(4, cy - 30, "MORE", "start");  cap(4, cy - 19, "RISE ▲", "start");
+  cap(4, cy + 26, "MORE", "start");  cap(4, cy + 37, "DROP ▼", "start");
+
+  /* league reference: one ellipse per pitch type he throws, at +/-1 sd */
+  const lg = DATA.leagueMove || {};
+  const defs = svg.append("defs");
+  p.arsenal.forEach((a, i) => {
+    const L = lg[p.throws + "|" + a.id];
+    if (!L) return;
+    const col = css(SLOTS[i % 8]), id = `hatch${i}`;
+    const pat = defs.append("pattern").attr("id", id).attr("width", 6).attr("height", 6)
+      .attr("patternUnits", "userSpaceOnUse").attr("patternTransform", "rotate(45)");
+    pat.append("rect").attr("width", 6).attr("height", 6).attr("fill", col).attr("opacity", 0.10);
+    pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 6)
+      .attr("stroke", col).attr("stroke-width", 2).attr("opacity", 0.30);
+    svg.append("ellipse")
+      .attr("cx", X(L[0])).attr("cy", Y(L[1]))
+      .attr("rx", r(L[2])).attr("ry", r(L[3]))
+      .attr("fill", `url(#${id})`).attr("stroke", "none");
+  });
+
+  /* individual pitches, once the sample has loaded */
+  const sample = state.move || [];
+  svg.append("g").selectAll("circle.mv").data(sample).join("circle")
+    .attr("class", "mv")
+    .attr("cx", d => X(d[1])).attr("cy", d => Y(d[2])).attr("r", 5.5)
+    .attr("fill", d => css(SLOTS[d[0] % 8]))
+    .attr("opacity", 0.72)
+    .attr("stroke", css("--surface")).attr("stroke-width", 1)
+    .on("mousemove", (ev, d) => showTip(
+      `<b>${(p.arsenal[d[0]] || {}).name || "?"}</b><br>`
+      + `${d[1] > 0 ? "+" : ""}${d[1].toFixed(1)}&Prime; toward ${d[1] > 0 ? "3B" : "1B"}<br>`
+      + `${d[2] > 0 ? "+" : ""}${d[2].toFixed(1)}&Prime; induced vertical`, ev))
+    .on("mouseleave", hideTip);
+
+  /* per-type means always render, even before the sample arrives */
+  svg.append("g").selectAll("circle.mean").data(p.arsenal).join("circle")
+    .attr("class", "mean")
+    .attr("cx", (d) => X(d.hb * armSideSign(p)))
+    .attr("cy", (d) => Y(d.ivb))
+    .attr("r", sample.length ? 7 : 10)
+    .attr("fill", (d, i) => css(SLOTS[i % 8]))
+    .attr("stroke", css("--surface")).attr("stroke-width", 2.5)
+    .on("mousemove", (ev, d) => showTip(
+      `<b>${d.name}</b> average<br>${f1(d.velo)} mph &middot; ${pct(d.usage)} usage<br>`
+      + `IVB ${d.ivb > 0 ? "+" : ""}${f1(d.ivb)}&Prime; &middot; HB ${d.hb > 0 ? "+" : ""}${f1(d.hb)}&Prime; arm-side`, ev))
+    .on("mouseleave", hideTip);
+
+  /* Direct-label every mean. The palette's slot order is validated for
+     ADJACENT pairs (stacked bars); a scatter puts all pairs on screen at once,
+     and an arsenal of six lands on both greens. Identity must not be colour
+     alone — the label is pushed radially outward so it clears the cluster. */
+  svg.append("g").selectAll("text.mlab").data(p.arsenal).join("text")
+    .attr("class", "mlab")
+    .each(function (d) {
+      const px = d.hb * armSideSign(p), pz = d.ivb;
+      const m = Math.hypot(px, pz) || 1;
+      d3.select(this)
+        .attr("x", X(px) + (px / m) * 15 + (px >= 0 ? 4 : -4))
+        .attr("y", Y(pz) - (pz / m) * 13 + 4)
+        .attr("text-anchor", px >= 0 ? "start" : "end");
+    })
+    .attr("fill", ink)
+    .attr("stroke", css("--surface")).attr("stroke-width", 3.5)
+    .attr("paint-order", "stroke")
+    .style("font-family", '"IBM Plex Mono",monospace')
+    .style("font-size", "11px").style("font-weight", 600)
+    .style("pointer-events", "none")
+    .text(d => d.id);
+
+  /* the arm slot, revealed on hover over the arm-angle card */
+  const aa = p.armAngle;
+  if (aa != null) {
+    const th = aa * Math.PI / 180, sgn = armSideSign(p);
+    const g = svg.append("g").attr("id", "arm-ray")
+      .attr("opacity", MV.hover ? 1 : 0)
+      .style("transition", "opacity .18s").style("pointer-events", "none");
+    const [ex, ey] = [X(sgn * MV.R * 0.66 * Math.cos(th)), Y(MV.R * 0.66 * Math.sin(th))];
+    g.append("line").attr("x1", cx).attr("y1", cy).attr("x2", ex).attr("y2", ey)
+      .attr("stroke", ink).attr("stroke-width", 9).attr("stroke-linecap", "round")
+      .attr("opacity", 0.6);
+    g.append("circle").attr("cx", ex).attr("cy", ey).attr("r", 8)
+      .attr("fill", css("--surface")).attr("stroke", ink).attr("stroke-width", 3.5);
+    /* No text on the ray. The slot points straight through the arm-side
+       cluster by construction, so any label there sits on the pitches — and
+       the angle is already large on the card the hover comes from. */
+  }
+}
+
+/* little pitcher glyph in the side card, arm drawn at his real angle */
+function drawArmFigure() {
+  const p = state.p, aa = p.armAngle;
+  const host = d3.select("#arm-fig"); host.selectAll("*").remove();
+  const W = 150, H = 96;
+  const svg = host.append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("aria-hidden", "true");
+  const ink3 = css("--ink-3"), ink = css("--ink");
+  const sgn = armSideSign(p);
+  const bx = W / 2 - sgn * 12, by = H - 8;
+  const g = svg.append("g").attr("stroke", ink3).attr("stroke-width", 3)
+    .attr("stroke-linecap", "round").attr("fill", "none");
+  g.append("line").attr("x1", bx - 6).attr("y1", by).attr("x2", bx).attr("y2", by - 26);
+  g.append("line").attr("x1", bx + 7).attr("y1", by).attr("x2", bx).attr("y2", by - 26);
+  g.append("line").attr("x1", bx).attr("y1", by - 26).attr("x2", bx).attr("y2", by - 52);
+  svg.append("circle").attr("cx", bx).attr("cy", by - 60).attr("r", 7)
+    .attr("fill", ink3);
+  if (aa != null) {
+    const th = aa * Math.PI / 180, L = 42, sy = by - 50;
+    svg.append("line").attr("x1", bx).attr("y1", sy)
+      .attr("x2", bx + sgn * L * Math.cos(th)).attr("y2", sy - L * Math.sin(th))
+      .attr("stroke", ink).attr("stroke-width", 6).attr("stroke-linecap", "round");
+    svg.append("circle").attr("cx", bx + sgn * L * Math.cos(th))
+      .attr("cy", sy - L * Math.sin(th)).attr("r", 4.5).attr("fill", ink);
+    svg.append("path")
+      .attr("d", `M${bx + sgn * 20},${sy} A20,20 0 0,${sgn > 0 ? 0 : 1} `
+                 + `${bx + sgn * 20 * Math.cos(th)},${sy - 20 * Math.sin(th)}`)
+      .attr("fill", "none").attr("stroke", css("--accent")).attr("stroke-width", 1.6);
+  }
+}
+
+function renderMovement() {
+  const p = state.p;
+  drawMovement(); drawArmFigure();
+  document.getElementById("arm-val").innerHTML =
+    p.armAngle != null ? `${p.armAngle}&deg;` : "&mdash;";
+  const key = d3.select("#move-key");
+  key.selectAll("*").remove();
+  key.append("div").attr("class", "kr")
+    .html('<span></span><span class="kh">Pitch</span><span class="kh">Use</span><span class="kh">MPH</span>');
+  key.selectAll("div.row").data(p.arsenal).join("div").attr("class", "kr")
+    .html((d, i) => `<span class="kd" style="background:var(${SLOTS[i % 8]})"></span>`
+      + `<span class="kn">${d.name}</span>`
+      + `<span class="ku num">${pct(d.usage)}</span>`
+      + `<span class="kv num">${d.velo == null ? "—" : f1(d.velo)}</span>`);
+}
+
+/* hover (and keyboard focus) on the arm card reveals the slot on the plot */
+(function () {
+  const card = document.getElementById("arm-card");
+  const show = on => {
+    MV.hover = on;
+    const ray = document.getElementById("arm-ray");
+    if (ray) ray.setAttribute("opacity", on ? "1" : "0");
+  };
+  ["mouseenter", "focus"].forEach(e => card.addEventListener(e, () => show(true)));
+  ["mouseleave", "blur"].forEach(e => card.addEventListener(e, () => show(false)));
+})();
 
 /* ── usage stacked bars ────────────────────────────────────────────────── */
 function renderSequencing(hand, sel) {
@@ -830,7 +1080,7 @@ function paintRamps() {
 }
 
 function renderAll() {
-  renderHeader(); renderArsenal();
+  renderHeader(); renderArsenal(); renderMovement();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   if (state.pitches.length) renderMaps();
   paintRamps();
@@ -843,7 +1093,7 @@ function renderAll() {
 const PITCH_CACHE = new Map();
 if (DATA.defaultId) {
   const d0 = DATA.pitchers.find(x => x.id === DATA.defaultId);
-  if (d0 && d0.pitches) PITCH_CACHE.set(d0.id, d0.pitches);
+  if (d0 && d0.pitches) PITCH_CACHE.set(d0.id, { pitches: d0.pitches, move: d0.move || [] });
 }
 let loadSeq = 0;
 
@@ -851,9 +1101,10 @@ async function loadPitches(p) {
   if (PITCH_CACHE.has(p.id)) return PITCH_CACHE.get(p.id);
   const res = await fetch(`p/${p.id}.json?b=${DATA.buildId || 0}`, { cache: "force-cache" });
   if (!res.ok) throw new Error(`p/${p.id}.json → ${res.status}`);
-  const packed = (await res.json()).pitches || "";
-  PITCH_CACHE.set(p.id, packed);
-  return packed;
+  const j = await res.json();
+  const rec = { pitches: j.pitches || "", move: j.move || [] };
+  PITCH_CACHE.set(p.id, rec);
+  return rec;
 }
 
 function setMapState(msg) {
@@ -868,8 +1119,9 @@ async function select(p) {
   document.getElementById("q").value = "";
 
   const cached = PITCH_CACHE.get(p.id);
-  state.pitches = cached ? decode(cached, p.arsenal) : [];
-  renderHeader(); renderArsenal();
+  state.pitches = cached ? decode(cached.pitches, p.arsenal) : [];
+  state.move = cached ? (cached.move || []) : (p.move || []);
+  renderHeader(); renderArsenal(); renderMovement();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   paintRamps();
   if (!document.getElementById("panel-flight").hidden) { renderFlight(); if (AB.on) abStart(); }
@@ -878,11 +1130,13 @@ async function select(p) {
 
   setMapState("Loading pitch locations\u2026");
   try {
-    const packed = await loadPitches(p);
+    const got = await loadPitches(p);
     if (seq !== loadSeq) return;               // a newer selection won
-    state.pitches = decode(packed, p.arsenal);
+    state.pitches = decode(got.pitches, p.arsenal);
+    state.move = got.move || [];
     setMapState(null);
     renderMaps();
+    renderMovement();                          // fill in the individual pitches
   } catch (e) {
     if (seq !== loadSeq) return;
     setMapState("Pitch locations unavailable \u2014 " + e.message);

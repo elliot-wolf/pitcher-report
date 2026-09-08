@@ -13,6 +13,7 @@ Re-run it to refresh the card.
     python3 build_cards.py --season 2026 --limit 60
 """
 import argparse, csv, io, json, math, ssl, sys, time, urllib.parse, urllib.request
+import statistics as _stats   # NB: build_pitcher has a local `st` (the season stat dict)
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -342,6 +343,31 @@ def build_pitcher(meta, season):
     ext_a = [f(r, "release_extension") for r in rows if f(r, "release_extension")]
     mean0 = lambda a: round(sum(a) / len(a), 2) if a else None
 
+    # Savant's movement chart is drawn from the pitcher's point of view:
+    # +x moves toward 3B, +y is induced rise. pfx_x is catcher's-view, so it
+    # flips; pfx_z is already gravity-removed.
+    import random as _rnd
+    rng_s = _rnd.Random(pid)
+    sample, mv_stats = [], {}
+    for i, a in enumerate(arsenal):
+        pts = [((-f(r, "pfx_x")) * 12, f(r, "pfx_z") * 12)
+               for r in by_pt[a["id"]]
+               if f(r, "pfx_x") is not None and f(r, "pfx_z") is not None]
+        if not pts: continue
+        n = len(pts)
+        sx = sum(x for x, _ in pts); sz = sum(z for _, z in pts)
+        mv_stats[a["id"]] = [n, sx, sz,
+                             sum(x * x for x, _ in pts), sum(z * z for _, z in pts)]
+        # stratified so a 3%-usage pitch still shows up on the plot
+        take = max(4, min(len(pts), round(115 * a["usage"])))
+        for x, z in rng_s.sample(pts, min(take, len(pts))):
+            sample.append([i, round(x, 1), round(z, 1)])
+    rng_s.shuffle(sample)
+
+    arm = [f(r, "arm_angle") for r in rows]
+    arm = [v for v in arm if v is not None]
+    arm_angle = round(_stats.median(arm), 1) if len(arm) >= 50 else None
+
     raw_out = {a["id"]: outcome_counts(by_pt[a["id"]]) for a in arsenal}
 
     st = meta["stat"]
@@ -353,6 +379,9 @@ def build_pitcher(meta, season):
         "id": pid, "name": meta["name"], "team": meta["team"],
         "throws": throws, "height": bio["height"], "weight": bio["weight"], "age": bio["age"],
         "rel": {"x": mean0(rel_x), "z": mean0(rel_z), "ext": mean0(ext_a)},
+        "armAngle": arm_angle,
+        "move": sample,
+        "_mv": mv_stats,
         "season": {
             "IP": ip, "ERA": g("era"), "WHIP": g("whip"),
             "K%": round(100 * int(st.get("strikeOuts") or 0) / bf, 1),
@@ -487,6 +516,23 @@ def main():
               f"1B {v['1b']:.1%}  2B {v['2b']:.1%}  3B {v['3b']:.2%}  HR {v['hr']:.1%}"
               f"  (hit {hit:.0%})", file=sys.stderr)
 
+    # League movement per pitch type and throwing hand, for the reference
+    # ellipses. Kept as running sums so no pitch-level data has to be held.
+    lgmv = {}
+    for c in cards:
+        for pt, (n, sx, sz, sx2, sz2) in c.pop("_mv").items():
+            k = c["throws"] + "|" + pt
+            acc = lgmv.setdefault(k, [0, 0.0, 0.0, 0.0, 0.0])
+            acc[0] += n; acc[1] += sx; acc[2] += sz; acc[3] += sx2; acc[4] += sz2
+    league_move = {}
+    for k, (n, sx, sz, sx2, sz2) in lgmv.items():
+        if n < 400: continue
+        mx, mz = sx / n, sz / n
+        vx, vz = max(0.0, sx2 / n - mx * mx), max(0.0, sz2 / n - mz * mz)
+        league_move[k] = [round(mx, 2), round(mz, 2),
+                          round(math.sqrt(vx), 2), round(math.sqrt(vz), 2), n]
+    print(f"  league movement: {len(league_move)} hand/pitch combos", file=sys.stderr)
+
     for c in cards:
         outs = {}
         for pid_, per_bin in c.pop("_raw_out").items():
@@ -514,6 +560,7 @@ def main():
         "grid": {"nx": NX, "nz": NZ, "bw": BW, "xd": XD, "zd": ZD},
         "baseline": base,
         "zoneBins": ZONE_BINS,
+        "leagueMove": league_move,
         "leagueOutcomes": [[round(v["whiff"],3), round(v["foul"],3), round(v["1b"],4),
                             round(v["2b"],4), round(v["3b"],4), round(v["hr"],4)]
                            for v in lg],
