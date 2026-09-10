@@ -286,6 +286,27 @@ comes from StatsAPI and is regular season by definition. Postseason (F/D/L/W) is
 excluded for the same consistency reason; including it would need the season
 line handled to match.
 
+
+## Deploying: one at a time
+
+**Never trigger two deploys close together.** The workflow's
+`concurrency: group: pages` serializes the *jobs*, but the GitHub Pages API
+keeps its own deployment lock that outlives the job. Firing a second run while
+the first is deploying gets:
+
+    Deployment request failed for <sha> due to in progress deployment.
+    Please cancel <other sha> first or wait for it to complete.
+
+The build succeeds and only the deploy step fails, so the site silently keeps
+serving the previous tree. It also sends a workflow-failure email, which looks
+identical to a genuinely broken daily build.
+
+That lock can wedge: on 2026-09-10 it rejected three consecutive runs while the
+blocking deployment simultaneously reported `success` in the environment API and
+"as it's finished" from the cancel endpoint. Waiting it out or letting the daily
+cron retry is the fix — do not hammer it, each attempt costs a ~6 minute build
+and another failure email.
+
 ## Data sources
 
 Both are free and need no auth or API key.
