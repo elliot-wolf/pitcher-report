@@ -319,6 +319,12 @@ button.ab-btn.wide { flex:1 1 220px; justify-content:center; padding:11px 13px; 
   color:var(--ink-3); font-weight:600; }
 @media (max-width:820px) { .move-wrap { grid-template-columns:minmax(0,1fr); } }
 
+.gl-card { border:1px solid var(--line); background:var(--surface); padding:11px 13px 13px; }
+.gl-h { font-family:"Barlow Condensed",sans-serif; font-size:13px; font-weight:700;
+  letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-2); margin-bottom:8px; }
+.gl-card svg { display:block; width:100%; height:auto; }
+.gl-empty { font-size:11.5px; color:var(--ink-3); padding:18px 2px; }
+
 #tip { position:fixed; pointer-events:none; opacity:0; background:var(--band); color:var(--band-ink);
   padding:6px 9px; font-size:11.5px; line-height:1.35; border-radius:3px; z-index:50; max-width:230px; transition:opacity .1s; }
 
@@ -452,6 +458,19 @@ button.ab-btn.wide { flex:1 1 220px; justify-content:center; padding:11px 13px; 
     </div>
   </section>
 
+  <section>
+    <div class="band"><h2>Game Log</h2>
+      <span class="band-note">2026 &middot; by outing</span></div>
+    <div class="gl-card">
+      <div class="gl-h" id="gl-velo-h">Fastball velocity</div>
+      <div id="gl-velo"></div>
+    </div>
+    <div class="gl-card" style="margin-top:14px">
+      <div class="gl-h">Pitch mix</div>
+      <div id="gl-mix"></div>
+    </div>
+  </section>
+
   <section class="sources">
     <div class="band"><h2>Where each panel comes from</h2><span class="band-note">wiring guide</span></div>
     <div class="src-grid">
@@ -557,7 +576,7 @@ function decode(str, arsenal) {
 }
 
 /* ── state ─────────────────────────────────────────────────────────────── */
-const state = { p: null, pitches: [], move: [], count: "all" };
+const state = { p: null, pitches: [], move: [], games: [], count: "all" };
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const pct = d3.format(".0%"), f1 = d3.format(".1f");
 const nn = (v, fmt, suffix = "") => (v === null || v === undefined)
@@ -729,9 +748,12 @@ function drawMovement() {
     .attr("opacity", 0.72)
     .attr("stroke", css("--surface")).attr("stroke-width", 1)
     .on("mousemove", (ev, d) => showTip(
-      `<b>${(p.arsenal[d[0]] || {}).name || "?"}</b><br>`
-      + `${d[1] > 0 ? "+" : ""}${d[1].toFixed(1)}&Prime; toward ${d[1] > 0 ? "3B" : "1B"}<br>`
-      + `${d[2] > 0 ? "+" : ""}${d[2].toFixed(1)}&Prime; induced vertical`, ev))
+      `<b>${(p.arsenal[d[0]] || {}).name || "?"}</b>`
+      /* d[3] is this pitch's own release speed, not the type average.
+         Guarded so a payload built before it was added still renders. */
+      + (d[3] == null ? "" : ` &middot; <span class="num">${d[3].toFixed(1)}</span> mph`)
+      + `<br>${d[1] > 0 ? "+" : ""}${d[1].toFixed(1)}&Prime; toward ${d[1] > 0 ? "3B" : "1B"}`
+      + `<br>${d[2] > 0 ? "+" : ""}${d[2].toFixed(1)}&Prime; induced vertical`, ev))
     .on("mouseleave", hideTip);
 
   /* per-type means always render, even before the sample arrives */
@@ -845,6 +867,120 @@ function renderMovement() {
   ["mouseenter", "focus"].forEach(e => card.addEventListener(e, () => show(true)));
   ["mouseleave", "blur"].forEach(e => card.addEventListener(e, () => show(false)));
 })();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GAME LOG — how the arsenal moved across the season, one point per outing.
+
+   Two charts off the same renderer: the primary fastball's average velocity
+   per game, and every pitch's share of that game. The primary fastball is the
+   most-thrown of FF/SI (a cutter counts only when a pitcher has neither), and
+   is named in the heading so it is never ambiguous.
+   ══════════════════════════════════════════════════════════════════════════ */
+const GL = { w: 1160, h: 250, m: { t: 12, r: 62, b: 26, l: 44 } };
+const parseGD = d3.timeParse("%Y-%m-%d");
+
+function drawGameChart(sel, series, opts) {
+  const host = d3.select(sel);
+  host.selectAll("*").remove();
+  const pts = series.flatMap(s => s.pts).filter(p => p.v != null);
+  if (pts.length < 2) {
+    host.append("div").attr("class", "gl-empty")
+      .text("Not enough outings in this build to chart.");
+    return;
+  }
+  const W = GL.w, H = opts.h || GL.h, m = GL.m;
+  const svg = host.append("svg").attr("viewBox", `0 0 ${W} ${H}`)
+    .attr("role", "img").attr("aria-label", opts.aria);
+
+  const ink = css("--ink"), ink2 = css("--ink-2"), ink3 = css("--ink-3"), line = css("--line");
+  const x = d3.scaleTime().domain(d3.extent(pts, p => p.d)).range([m.l, W - m.r]);
+  const yd = opts.yDomain || d3.extent(pts, p => p.v);
+  const pad = (yd[1] - yd[0]) * 0.12 || 1;
+  const y = d3.scaleLinear()
+    .domain(opts.yDomain || [yd[0] - pad, yd[1] + pad]).nice()
+    .range([H - m.b, m.t]);
+
+  /* recessive grid, labels only on values the chart actually reaches */
+  y.ticks(5).forEach(t => {
+    svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y(t)).attr("y2", y(t))
+      .attr("stroke", line).attr("stroke-width", 1);
+    svg.append("text").attr("x", m.l - 7).attr("y", y(t) + 3).attr("text-anchor", "end")
+      .attr("fill", ink3).style("font-family", '"IBM Plex Mono",monospace')
+      .style("font-size", "10px").text(opts.fmt ? opts.fmt(t) : t);
+  });
+  x.ticks(d3.timeMonth.every(1)).forEach(t => {
+    svg.append("text").attr("x", x(t)).attr("y", H - 8).attr("text-anchor", "middle")
+      .attr("fill", ink3).style("font-family", '"Barlow",sans-serif')
+      .style("font-size", "10px").style("letter-spacing", "0.06em")
+      .text(d3.timeFormat("%b")(t));
+  });
+
+  const ln = d3.line().defined(d => d.v != null).x(d => x(d.d)).y(d => y(d.v));
+  series.forEach(sr => {
+    const good = sr.pts.filter(p => p.v != null);
+    if (!good.length) return;
+    svg.append("path").datum(sr.pts).attr("fill", "none")
+      .attr("stroke", sr.color).attr("stroke-width", 2)
+      .attr("stroke-linejoin", "round").attr("stroke-linecap", "round").attr("d", ln);
+    svg.append("g").selectAll("circle").data(good).join("circle")
+      .attr("cx", d => x(d.d)).attr("cy", d => y(d.v)).attr("r", 3.1)
+      .attr("fill", sr.color);
+    /* Direct label at the line's end. A multi-series line chart shows every
+       colour pair at once, so identity must not rest on colour alone. */
+    const last = good[good.length - 1];
+    svg.append("text").attr("x", x(last.d) + 7).attr("y", y(last.v) + 3.5)
+      .attr("fill", ink).attr("stroke", css("--surface")).attr("stroke-width", 3)
+      .attr("paint-order", "stroke")
+      .style("font-family", '"IBM Plex Mono",monospace')
+      .style("font-size", "10.5px").style("font-weight", 600).text(sr.label);
+  });
+
+  /* crosshair + tooltip on the nearest outing */
+  const dates = [...new Set(pts.map(p => +p.d))].sort((a, b) => a - b).map(t => new Date(t));
+  const hair = svg.append("line").attr("y1", m.t).attr("y2", H - m.b)
+    .attr("stroke", ink3).attr("stroke-width", 1).attr("stroke-dasharray", "3 3")
+    .attr("opacity", 0);
+  svg.append("rect").attr("x", m.l).attr("y", m.t)
+    .attr("width", W - m.l - m.r).attr("height", H - m.t - m.b)
+    .attr("fill", "transparent").style("cursor", "crosshair")
+    .on("mousemove", function (ev) {
+      const mx = d3.pointer(ev, this)[0] + m.l;
+      const dt = dates.reduce((best, d) =>
+        Math.abs(x(d) - mx) < Math.abs(x(best) - mx) ? d : best, dates[0]);
+      hair.attr("x1", x(dt)).attr("x2", x(dt)).attr("opacity", 1);
+      const rows = series.map(sr => {
+        const hit = sr.pts.find(p => +p.d === +dt && p.v != null);
+        return hit ? `<span style="color:${sr.color}">&#9679;</span> ${sr.label} `
+                   + `<b>${opts.tip(hit.v)}</b>` : null;
+      }).filter(Boolean);
+      if (rows.length) showTip(`<b>${d3.timeFormat("%b %-d")(dt)}</b><br>` + rows.join("<br>"), ev);
+    })
+    .on("mouseleave", () => { hair.attr("opacity", 0); hideTip(); });
+}
+
+function renderGameLog() {
+  const p = state.p, games = state.games || [];
+  const rows = games.map(g => ({ ...g, dt: parseGD(g.d) })).filter(g => g.dt);
+
+  const fbName = (p.arsenal.find(a => a.id === p.fb) || {}).name || "Fastball";
+  document.getElementById("gl-velo-h").textContent =
+    `${fbName} velocity · ${rows.length} outings`;
+
+  drawGameChart("#gl-velo",
+    [{ label: p.fb || "FB", color: css(SLOTS[Math.max(0, p.arsenal.findIndex(a => a.id === p.fb)) % 8]),
+       pts: rows.map(g => ({ d: g.dt, v: g.v })) }],
+    { aria: `${fbName} average velocity by game`,
+      fmt: v => v.toFixed(1), tip: v => `${v.toFixed(1)} mph`, h: 240 });
+
+  drawGameChart("#gl-mix",
+    p.arsenal.map((a, i) => ({
+      label: a.id, color: css(SLOTS[i % 8]),
+      pts: rows.map(g => ({ d: g.dt, v: g.u && g.u[i] != null ? g.u[i] : null }))
+    })),
+    { aria: "Pitch usage share by game", yDomain: [0, Math.max(60,
+        d3.max(rows, g => d3.max(g.u || [0])) + 6)],
+      fmt: v => v + "%", tip: v => `${v}%`, h: 290 });
+}
 
 /* ── usage stacked bars ────────────────────────────────────────────────── */
 function renderSequencing(hand, sel) {
@@ -1076,7 +1212,7 @@ function paintRamps() {
 }
 
 function renderAll() {
-  renderHeader(); renderArsenal(); renderMovement();
+  renderHeader(); renderArsenal(); renderMovement(); renderGameLog();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   if (state.pitches.length) renderMaps();
   paintRamps();
@@ -1089,7 +1225,8 @@ function renderAll() {
 const PITCH_CACHE = new Map();
 if (DATA.defaultId) {
   const d0 = DATA.pitchers.find(x => x.id === DATA.defaultId);
-  if (d0 && d0.pitches) PITCH_CACHE.set(d0.id, { pitches: d0.pitches, move: d0.move || [] });
+  if (d0 && d0.pitches) PITCH_CACHE.set(d0.id,
+    { pitches: d0.pitches, move: d0.move || [], games: d0.games || [] });
 }
 let loadSeq = 0;
 
@@ -1098,7 +1235,7 @@ async function loadPitches(p) {
   const res = await fetch(`p/${p.id}.json?b=${DATA.buildId || 0}`, { cache: "force-cache" });
   if (!res.ok) throw new Error(`p/${p.id}.json → ${res.status}`);
   const j = await res.json();
-  const rec = { pitches: j.pitches || "", move: j.move || [] };
+  const rec = { pitches: j.pitches || "", move: j.move || [], games: j.games || [] };
   PITCH_CACHE.set(p.id, rec);
   return rec;
 }
@@ -1117,7 +1254,8 @@ async function select(p) {
   const cached = PITCH_CACHE.get(p.id);
   state.pitches = cached ? decode(cached.pitches, p.arsenal) : [];
   state.move = cached ? (cached.move || []) : (p.move || []);
-  renderHeader(); renderArsenal(); renderMovement();
+  state.games = cached ? (cached.games || []) : (p.games || []);
+  renderHeader(); renderArsenal(); renderMovement(); renderGameLog();
   renderSequencing("R", "#seq-R"); renderSequencing("L", "#seq-L");
   paintRamps();
   if (!document.getElementById("panel-flight").hidden) { renderFlight(); abStart(); }
@@ -1130,9 +1268,11 @@ async function select(p) {
     if (seq !== loadSeq) return;               // a newer selection won
     state.pitches = decode(got.pitches, p.arsenal);
     state.move = got.move || [];
+    state.games = got.games || [];
     setMapState(null);
     renderMaps();
     renderMovement();                          // fill in the individual pitches
+    renderGameLog();
   } catch (e) {
     if (seq !== loadSeq) return;
     setMapState("Pitch locations unavailable \u2014 " + e.message);

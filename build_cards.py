@@ -228,6 +228,14 @@ def shrink(x, n, prior, k=45.0):
 def build_pitcher(meta, season):
     pid = meta["id"]
     rows = get_statcast(pid, season)
+    # Regular season only. Savant returns spring training under the same
+    # season parameter (game_type "S"), which was quietly folded into every
+    # aggregate here — roughly 7% of a starter's pitches, thrown while arms are
+    # still building up and mixes are experimental. It also put the pitch count
+    # out of step with the season line, which comes from StatsAPI and is
+    # regular season by definition. Postseason (F/D/L/W) is excluded for the
+    # same reason; revisit deliberately if playoff cards are ever wanted.
+    rows = [r for r in rows if r.get("game_type") == "R"]
     rows = [r for r in rows if r.get("pitch_type") and r.get("plate_x") and r.get("plate_z")]
     if len(rows) < 300:
         return None
@@ -362,19 +370,56 @@ def build_pitcher(meta, season):
     rng_s = _rnd.Random(pid)
     sample, mv_stats = [], {}
     for i, a in enumerate(arsenal):
-        pts = [((-f(r, "pfx_x")) * 12, f(r, "pfx_z") * 12)
+        # velocity rides along so a hovered dot can report its own mph rather
+        # than the pitch type's average
+        pts = [((-f(r, "pfx_x")) * 12, f(r, "pfx_z") * 12, f(r, "release_speed"))
                for r in by_pt[a["id"]]
-               if f(r, "pfx_x") is not None and f(r, "pfx_z") is not None]
+               if f(r, "pfx_x") is not None and f(r, "pfx_z") is not None
+               and f(r, "release_speed") is not None]
         if not pts: continue
         n = len(pts)
-        sx = sum(x for x, _ in pts); sz = sum(z for _, z in pts)
+        sx = sum(x for x, _, _ in pts); sz = sum(z for _, z, _ in pts)
         mv_stats[a["id"]] = [n, sx, sz,
-                             sum(x * x for x, _ in pts), sum(z * z for _, z in pts)]
+                             sum(x * x for x, _, _ in pts),
+                             sum(z * z for _, z, _ in pts)]
         # stratified so a 3%-usage pitch still shows up on the plot
         take = max(4, min(len(pts), round(115 * a["usage"])))
-        for x, z in rng_s.sample(pts, min(take, len(pts))):
-            sample.append([i, round(x, 1), round(z, 1)])
+        for x, z, v in rng_s.sample(pts, min(take, len(pts))):
+            sample.append([i, round(x, 1), round(z, 1), round(v, 1)])
     rng_s.shuffle(sample)
+
+    # ── per-game series: fastball velocity, and the mix ───────────────────
+    # The primary fastball is the most-thrown of FF/SI. A cutter is a fastball
+    # by classification but behaves like a breaking ball for most arms, so it
+    # is only used when a pitcher genuinely has no four-seam or sinker.
+    FB_FIRST, FB_FALLBACK = ("FF", "SI"), ("FC", "FA")
+    by_use = {a["id"]: a["usage"] for a in arsenal}
+    fb = max((i for i in FB_FIRST if i in by_use), key=lambda i: by_use[i], default=None) \
+      or max((i for i in FB_FALLBACK if i in by_use), key=lambda i: by_use[i], default=None) \
+      or (max(arsenal, key=lambda a: (a["velo"] or 0))["id"] if arsenal else None)
+
+    idx_of = {a["id"]: i for i, a in enumerate(arsenal)}
+    per_game = {}
+    for r in rows:
+        d_ = r.get("game_date")
+        pt = r.get("pitch_type")
+        if not d_ or pt not in idx_of: continue
+        g = per_game.setdefault(d_, {"n": 0, "cnt": [0] * len(arsenal), "fbv": []})
+        g["n"] += 1
+        g["cnt"][idx_of[pt]] += 1
+        if pt == fb:
+            v = f(r, "release_speed")
+            if v is not None: g["fbv"].append(v)
+    games = []
+    for d_ in sorted(per_game):
+        g = per_game[d_]
+        if g["n"] < 5: continue                     # a batter faced, not an outing
+        games.append({
+            "d": d_,
+            "v": round(sum(g["fbv"]) / len(g["fbv"]), 1) if len(g["fbv"]) >= 3 else None,
+            "n": g["n"],
+            "u": [round(100 * c / g["n"]) for c in g["cnt"]],
+        })
 
     arm = [f(r, "arm_angle") for r in rows]
     arm = [v for v in arm if v is not None]
@@ -393,6 +438,8 @@ def build_pitcher(meta, season):
         "rel": {"x": mean0(rel_x), "z": mean0(rel_z), "ext": mean0(ext_a)},
         "armAngle": arm_angle,
         "move": sample,
+        "games": games,
+        "fb": fb,
         "_mv": mv_stats,
         "season": {
             "IP": ip, "ERA": g("era"), "WHIP": g("whip"),

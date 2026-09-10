@@ -259,6 +259,33 @@ so a "rising" fastball is one that falls less than a spinless ball.
 - An `<svg>` flex item ignores `width:100%` and falls back to its 300px
   intrinsic size — `.move-plot` is block with auto margins for that reason.
 
+
+## Game log
+
+Two charts at the foot of the Report page, both from `pitcher.games` in the
+per-pitcher file: the primary fastball's average velocity per outing, and every
+pitch's share of each outing.
+
+- **Primary fastball** = most-thrown of FF/SI. A cutter qualifies only when a
+  pitcher has neither: it is classified as a fastball but behaves like a
+  breaking ball, and an 88 mph cutter beside a 96 mph four-seam reads as a
+  velocity collapse. The heading names the pitch it chose.
+- A game needs 5+ pitches to count as an outing, and the velocity point is null
+  unless the fastball went 3+ times that game — the line breaks rather than
+  plotting a one-pitch average.
+- Every line is direct-labelled at its right end. A multi-series line chart puts
+  all colour pairs on screen at once, same reason as the movement scatter.
+
+## Regular season only
+
+`build_pitcher` filters `game_type == "R"`. Savant returns **spring training
+under the same season parameter** (`game_type "S"`), and it was silently folded
+into every aggregate — about 7% of a starter's pitches, thrown while arms are
+building up. It also put the pitch count out of step with the season line, which
+comes from StatsAPI and is regular season by definition. Postseason (F/D/L/W) is
+excluded for the same consistency reason; including it would need the season
+line handled to match.
+
 ## Data sources
 
 Both are free and need no auth or API key.
