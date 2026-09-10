@@ -109,5 +109,46 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The Pages API keeps a deployment lock that outlives the job, so a
+      # deploy can be refused with "due to in progress deployment" even though
+      # `concurrency` serialized the workflows. That lock is transient — and it
+      # has wedged for several minutes while simultaneously reporting the
+      # blocking deployment as finished. Retry rather than fail: a failed run
+      # emails the owner and looks identical to a genuinely broken build.
       - id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Pages was busy — wait and retry
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 90
+      - id: retry1
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Still busy — wait longer and retry once more
+        if: steps.deployment.outcome == 'failure' && steps.retry1.outcome == 'failure'
+        run: sleep 180
+      - id: retry2
+        if: steps.deployment.outcome == 'failure' && steps.retry1.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      # Only a genuine, persistent failure fails the run — and it still does,
+      # loudly, so a real breakage is never swallowed.
+      - name: Report
+        run: |
+          for s in "first:${{ steps.deployment.outcome }}" \
+                   "retry1:${{ steps.retry1.outcome }}" \
+                   "retry2:${{ steps.retry2.outcome }}"; do
+            echo "  attempt $s"
+          done
+          if [ "${{ steps.deployment.outcome }}" = "success" ] \
+          || [ "${{ steps.retry1.outcome }}" = "success" ] \
+          || [ "${{ steps.retry2.outcome }}" = "success" ]; then
+            echo "deployed"
+          else
+            echo "::error::All three Pages deployment attempts failed."
+            exit 1
+          fi
